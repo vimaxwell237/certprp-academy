@@ -1,1 +1,1 @@
-# certprep-academy
+# certprp-academy
