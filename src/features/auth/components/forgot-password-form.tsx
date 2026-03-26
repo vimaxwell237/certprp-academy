@@ -2,19 +2,26 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 import { buildAppUrl } from "@/lib/app-url";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import {
+  getSafePasswordRecoveryErrorMessage,
+  isPasswordRecoveryRateLimitError
+} from "@/lib/errors/public-error";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { hasSupabaseEnv } from "@/lib/supabase/config";
+
+const PASSWORD_RESET_COOLDOWN_MS = 60_000;
+const PASSWORD_RESET_COOLDOWN_KEY = "certprep:password-reset-cooldown-until";
 
 export function ForgotPasswordForm() {
   const searchParams = useSearchParams();
   const [supabase] = useState(() => createBrowserSupabaseClient());
+  const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -25,6 +32,62 @@ export function ForgotPasswordForm() {
     errorParam === "recovery_link"
       ? "That password reset link is invalid or has expired. Request a new reset email below."
       : null;
+  const cooldownRemainingSeconds = Math.ceil(cooldownRemainingMs / 1000);
+
+  function setCooldown(durationMs: number) {
+    const endsAt = Date.now() + durationMs;
+
+    window.localStorage.setItem(PASSWORD_RESET_COOLDOWN_KEY, String(endsAt));
+    setCooldownRemainingMs(durationMs);
+  }
+
+  useEffect(() => {
+    const savedEndsAt = window.localStorage.getItem(PASSWORD_RESET_COOLDOWN_KEY);
+
+    if (!savedEndsAt) {
+      return;
+    }
+
+    const remainingMs = Number(savedEndsAt) - Date.now();
+
+    if (remainingMs > 0) {
+      setCooldownRemainingMs(remainingMs);
+      return;
+    }
+
+    window.localStorage.removeItem(PASSWORD_RESET_COOLDOWN_KEY);
+  }, []);
+
+  useEffect(() => {
+    if (cooldownRemainingMs <= 0) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const savedEndsAt = window.localStorage.getItem(PASSWORD_RESET_COOLDOWN_KEY);
+
+      if (!savedEndsAt) {
+        setCooldownRemainingMs(0);
+        window.clearInterval(intervalId);
+        return;
+      }
+
+      const remainingMs = Number(savedEndsAt) - Date.now();
+
+      if (remainingMs <= 0) {
+        window.localStorage.removeItem(PASSWORD_RESET_COOLDOWN_KEY);
+        setCooldownRemainingMs(0);
+        window.clearInterval(intervalId);
+        return;
+      }
+
+      setCooldownRemainingMs(remainingMs);
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [cooldownRemainingMs]);
 
   async function handleSubmit(formData: FormData) {
     if (!supabase) {
@@ -39,6 +102,13 @@ export function ForgotPasswordForm() {
     setIsSubmitting(true);
 
     try {
+      if (cooldownRemainingMs > 0) {
+        setError(
+          `Please wait ${cooldownRemainingSeconds}s before requesting another reset email.`
+        );
+        return;
+      }
+
       const email = String(formData.get("email") ?? "");
       const callbackParams = new URLSearchParams({
         next: APP_ROUTES.resetPassword,
@@ -51,16 +121,16 @@ export function ForgotPasswordForm() {
       });
 
       if (resetError) {
-        setError(
-          getPublicErrorMessage(
-            resetError,
-            "We could not send the reset email right now. Please try again."
-          )
-        );
+        setError(getSafePasswordRecoveryErrorMessage(resetError));
+
+        if (isPasswordRecoveryRateLimitError(resetError)) {
+          setCooldown(PASSWORD_RESET_COOLDOWN_MS);
+        }
       } else {
         setSuccess(
-          "If an account exists for that email, a password reset link has been sent."
+          "If an account exists for that email, a password reset link has been sent. Use the newest email in your inbox."
         );
+        setCooldown(PASSWORD_RESET_COOLDOWN_MS);
       }
     } finally {
       setIsSubmitting(false);
@@ -110,6 +180,11 @@ export function ForgotPasswordForm() {
             {success}
           </p>
         ) : null}
+        {cooldownRemainingMs > 0 ? (
+          <p className="rounded-2xl bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+            Another reset email can be requested in about {cooldownRemainingSeconds}s.
+          </p>
+        ) : null}
 
         {!isConfigured ? (
           <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-700">
@@ -118,8 +193,16 @@ export function ForgotPasswordForm() {
           </p>
         ) : null}
 
-        <Button disabled={!isConfigured || isSubmitting} fullWidth type="submit">
-          {isSubmitting ? "Sending reset link..." : "Send reset link"}
+        <Button
+          disabled={!isConfigured || isSubmitting || cooldownRemainingMs > 0}
+          fullWidth
+          type="submit"
+        >
+          {isSubmitting
+            ? "Sending reset link..."
+            : cooldownRemainingMs > 0
+              ? `Wait ${cooldownRemainingSeconds}s`
+              : "Send reset link"}
         </Button>
       </form>
 
