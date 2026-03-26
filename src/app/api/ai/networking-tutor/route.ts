@@ -15,7 +15,8 @@ const AI_TUTOR_RESPONSE_HEADERS = {
 } as const;
 const MAX_QUESTION_LENGTH = 1500;
 const MAX_CONTEXT_LENGTH = 240;
-const AI_TUTOR_PROVIDER_TIMEOUT_MS = 30_000;
+const AI_TUTOR_PROVIDER_TIMEOUT_MS = 60_000;
+const AI_TUTOR_MAX_OUTPUT_TOKENS = 500;
 const AI_TUTOR_RATE_LIMIT = {
   limit: 12,
   windowMs: 60_000
@@ -299,6 +300,7 @@ async function requestGitHubModelsTutorResponse(input: {
       },
       body: JSON.stringify({
         model: process.env.GITHUB_MODELS_MODEL ?? "openai/gpt-4o-mini",
+        max_tokens: AI_TUTOR_MAX_OUTPUT_TOKENS,
         messages: [
           {
             role: "system",
@@ -388,7 +390,7 @@ async function requestOpenAiTutorResponse(input: {
           question: input.question,
           lessonContext: input.lessonContext
         }),
-        max_output_tokens: 700
+        max_output_tokens: AI_TUTOR_MAX_OUTPUT_TOKENS
       })
     });
 
