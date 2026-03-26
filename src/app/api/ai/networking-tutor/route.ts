@@ -7,6 +7,7 @@ import {
   checkSlidingWindowRateLimit,
   isTrustedRequestOrigin
 } from "@/lib/http/request-security";
+import { isRecoverableAuthSessionError } from "@/lib/supabase/auth-errors";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const AI_TUTOR_RESPONSE_HEADERS = {
@@ -144,11 +145,19 @@ async function getAuthenticatedUserId() {
     return null;
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  try {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
 
-  return user?.id ?? null;
+    return user?.id ?? null;
+  } catch (error) {
+    if (isRecoverableAuthSessionError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 function jsonNoStore(body: Record<string, unknown>, status = 200) {
@@ -372,32 +381,6 @@ export async function POST(request: NextRequest) {
     return jsonNoStore({ error: "Cross-site requests are not allowed." }, 403);
   }
 
-  const userId = await getAuthenticatedUserId();
-
-  if (!userId) {
-    return jsonNoStore({ error: "Unauthorized." }, 401);
-  }
-
-  const rateLimit = checkSlidingWindowRateLimit({
-    key: `ai-tutor:${userId}`,
-    ...AI_TUTOR_RATE_LIMIT
-  });
-
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      {
-        error: "Too many AI tutor requests. Please wait a moment and try again."
-      },
-      {
-        headers: {
-          ...AI_TUTOR_RESPONSE_HEADERS,
-          "Retry-After": String(rateLimit.retryAfterSeconds)
-        },
-        status: 429
-      }
-    );
-  }
-
   const githubModelsToken = process.env.GITHUB_MODELS_TOKEN;
   const githubToken = githubModelsToken ?? process.env.GITHUB_TOKEN;
   const openAiApiKey = process.env.OPENAI_API_KEY;
@@ -413,6 +396,37 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const userId = await getAuthenticatedUserId();
+
+    if (!userId) {
+      return jsonNoStore(
+        {
+          error: "Your session has expired. Sign in again, then retry your question."
+        },
+        401
+      );
+    }
+
+    const rateLimit = checkSlidingWindowRateLimit({
+      key: `ai-tutor:${userId}`,
+      ...AI_TUTOR_RATE_LIMIT
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: "Too many AI tutor requests. Please wait a moment and try again."
+        },
+        {
+          headers: {
+            ...AI_TUTOR_RESPONSE_HEADERS,
+            "Retry-After": String(rateLimit.retryAfterSeconds)
+          },
+          status: 429
+        }
+      );
+    }
+
     const body = (await request.json().catch(() => null)) as {
       user_question?: string;
       lesson_context?: string | null;
@@ -527,7 +541,7 @@ export async function POST(request: NextRequest) {
       {
         error:
           process.env.NODE_ENV === "production"
-            ? "The AI tutor is temporarily unavailable. Please try again shortly."
+            ? "The AI tutor is temporarily unavailable. Refresh the page and try again shortly."
             : message
       },
       500

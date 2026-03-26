@@ -8,6 +8,12 @@ import type {
   AiTutorSessionEntry
 } from "@/types/ai-tutor";
 
+type TutorApiPayload = {
+  answer?: string;
+  error?: string;
+  persistenceWarning?: string | null;
+};
+
 function toMessages(history: AiTutorSessionEntry[]): AiTutorMessage[] {
   return [...history]
     .reverse()
@@ -77,6 +83,25 @@ export function useAiTutorChat(input: {
   const [tutorNote, setTutorNote] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const readTutorApiPayload = useCallback(async (response: Response) => {
+    const responseText = await response.text();
+    const trimmed = responseText.trim();
+
+    if (!trimmed) {
+      return {} satisfies TutorApiPayload;
+    }
+
+    try {
+      return JSON.parse(trimmed) as TutorApiPayload;
+    } catch {
+      return {
+        error: response.ok
+          ? "The AI tutor returned an unreadable response. Please try again."
+          : "The AI tutor is temporarily unavailable. Please try again shortly."
+      } satisfies TutorApiPayload;
+    }
+  }, []);
+
   const askTutor = useCallback(
     (question: string, lessonContextOverride?: string | null) => {
       const trimmedQuestion = question.trim();
@@ -109,11 +134,7 @@ export function useAiTutorChat(input: {
               lesson_context: lessonContextOverride ?? input.context.lessonContext
             })
           });
-          const payload = (await response.json()) as {
-            answer?: string;
-            error?: string;
-            persistenceWarning?: string | null;
-          };
+          const payload = await readTutorApiPayload(response);
 
           if (!response.ok || !payload.answer) {
             throw new Error(payload.error ?? "The AI tutor could not answer right now.");
@@ -140,7 +161,7 @@ export function useAiTutorChat(input: {
         }
       });
     },
-    [input.context.lessonContext]
+    [input.context.lessonContext, readTutorApiPayload]
   );
 
   useEffect(() => {
