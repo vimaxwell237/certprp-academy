@@ -14,6 +14,7 @@ const AI_TUTOR_RESPONSE_HEADERS = {
 } as const;
 const MAX_QUESTION_LENGTH = 1500;
 const MAX_CONTEXT_LENGTH = 240;
+const AI_TUTOR_PROVIDER_TIMEOUT_MS = 30_000;
 const AI_TUTOR_RATE_LIMIT = {
   limit: 12,
   windowMs: 60_000
@@ -168,6 +169,30 @@ function isRateLimited(status: number, message: string) {
   );
 }
 
+function isTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const normalizedMessage = error.message.toLowerCase();
+
+  return (
+    error.name === "AbortError" ||
+    error.name === "TimeoutError" ||
+    normalizedMessage.includes("aborted due to timeout") ||
+    normalizedMessage.includes("timed out") ||
+    normalizedMessage.includes("timeout")
+  );
+}
+
+function getProviderRequestErrorMessage(providerLabel: string, error: unknown) {
+  if (isTimeoutError(error)) {
+    return `${providerLabel} took too long to respond. Please try again in a few seconds.`;
+  }
+
+  return error instanceof Error ? error.message : `${providerLabel} is temporarily unavailable.`;
+}
+
 function buildDevFallbackPayload(input: {
   question: string;
   lessonContext?: string | null;
@@ -188,7 +213,7 @@ async function requestGitHubModelsTutorResponse(input: {
     const response = await fetch("https://models.github.ai/inference/chat/completions", {
       cache: "no-store",
       method: "POST",
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(AI_TUTOR_PROVIDER_TIMEOUT_MS),
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${input.githubToken}`,
@@ -255,10 +280,7 @@ async function requestGitHubModelsTutorResponse(input: {
   } catch (error) {
     return {
       failure: {
-        message:
-          error instanceof Error
-            ? error.message
-            : "GitHub Models is temporarily unavailable.",
+        message: getProviderRequestErrorMessage("GitHub Models", error),
         providerLabel: "GitHub Models",
         rateLimited: false,
         status: 503
@@ -277,7 +299,7 @@ async function requestOpenAiTutorResponse(input: {
     const response = await fetch("https://api.openai.com/v1/responses", {
       cache: "no-store",
       method: "POST",
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(AI_TUTOR_PROVIDER_TIMEOUT_MS),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${input.openAiApiKey}`
@@ -335,8 +357,7 @@ async function requestOpenAiTutorResponse(input: {
   } catch (error) {
     return {
       failure: {
-        message:
-          error instanceof Error ? error.message : "OpenAI is temporarily unavailable.",
+        message: getProviderRequestErrorMessage("OpenAI", error),
         providerLabel: "OpenAI",
         rateLimited: false,
         status: 503
@@ -377,14 +398,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const githubToken = process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN;
+  const githubModelsToken = process.env.GITHUB_MODELS_TOKEN;
+  const githubToken = githubModelsToken ?? process.env.GITHUB_TOKEN;
   const openAiApiKey = process.env.OPENAI_API_KEY;
 
   if (!githubToken && !openAiApiKey) {
     return jsonNoStore(
       {
         error:
-          "No AI provider key is configured. Set GITHUB_TOKEN for GitHub Models or OPENAI_API_KEY for OpenAI."
+          "No AI provider key is configured. Set GITHUB_MODELS_TOKEN for GitHub Models or OPENAI_API_KEY for OpenAI."
       },
       503
     );
@@ -419,21 +441,21 @@ export async function POST(request: NextRequest) {
     }
 
     const providerAttempts = [
-      ...(openAiApiKey
-        ? [
-            () =>
-              requestOpenAiTutorResponse({
-                openAiApiKey,
-                question,
-                lessonContext
-              })
-          ]
-        : []),
       ...(githubToken
         ? [
             () =>
               requestGitHubModelsTutorResponse({
                 githubToken,
+                question,
+                lessonContext
+              })
+          ]
+        : []),
+      ...(openAiApiKey
+        ? [
+            () =>
+              requestOpenAiTutorResponse({
+                openAiApiKey,
                 question,
                 lessonContext
               })
