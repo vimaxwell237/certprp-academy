@@ -43,6 +43,28 @@ type GitHubModelsChatCompletionsResponse = {
   };
 };
 
+type TutorProviderSuccess = {
+  answer: string;
+  providerLabel: string;
+};
+
+type TutorProviderFailure = {
+  message: string;
+  providerLabel: string;
+  rateLimited: boolean;
+  status: number;
+};
+
+type TutorProviderResult =
+  | {
+      ok: true;
+      value: TutorProviderSuccess;
+    }
+  | {
+      failure: TutorProviderFailure;
+      ok: false;
+    };
+
 async function readJsonOrTextResponse<T>(response: Response): Promise<{
   json: T | null;
   text: string;
@@ -157,6 +179,173 @@ function buildDevFallbackPayload(input: {
   };
 }
 
+async function requestGitHubModelsTutorResponse(input: {
+  githubToken: string;
+  lessonContext?: string | null;
+  question: string;
+}): Promise<TutorProviderResult> {
+  try {
+    const response = await fetch("https://models.github.ai/inference/chat/completions", {
+      cache: "no-store",
+      method: "POST",
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${input.githubToken}`,
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28"
+      },
+      body: JSON.stringify({
+        model: process.env.GITHUB_MODELS_MODEL ?? "openai/gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: NETWORKING_TUTOR_SYSTEM_PROMPT
+          },
+          {
+            role: "user",
+            content: buildTutorUserPrompt({
+              question: input.question,
+              lessonContext: input.lessonContext
+            })
+          }
+        ]
+      })
+    });
+
+    const { json: payload, text } =
+      await readJsonOrTextResponse<GitHubModelsChatCompletionsResponse>(response);
+
+    if (!response.ok) {
+      const message =
+        payload?.error?.message || text || "GitHub Models could not generate a response.";
+
+      return {
+        failure: {
+          message,
+          providerLabel: "GitHub Models",
+          rateLimited: isRateLimited(response.status, message),
+          status: response.status
+        },
+        ok: false
+      };
+    }
+
+    const answer = (payload ? extractGitHubModelsText(payload) : text).trim();
+
+    if (!answer) {
+      return {
+        failure: {
+          message: "GitHub Models returned an empty response.",
+          providerLabel: "GitHub Models",
+          rateLimited: false,
+          status: 502
+        },
+        ok: false
+      };
+    }
+
+    return {
+      ok: true,
+      value: {
+        answer,
+        providerLabel: "GitHub Models"
+      }
+    };
+  } catch (error) {
+    return {
+      failure: {
+        message:
+          error instanceof Error
+            ? error.message
+            : "GitHub Models is temporarily unavailable.",
+        providerLabel: "GitHub Models",
+        rateLimited: false,
+        status: 503
+      },
+      ok: false
+    };
+  }
+}
+
+async function requestOpenAiTutorResponse(input: {
+  lessonContext?: string | null;
+  openAiApiKey: string;
+  question: string;
+}): Promise<TutorProviderResult> {
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      cache: "no-store",
+      method: "POST",
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${input.openAiApiKey}`
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_TUTOR_MODEL ?? "gpt-5-mini",
+        instructions: NETWORKING_TUTOR_SYSTEM_PROMPT,
+        input: buildTutorUserPrompt({
+          question: input.question,
+          lessonContext: input.lessonContext
+        }),
+        max_output_tokens: 700
+      })
+    });
+
+    const { json: payload, text } =
+      await readJsonOrTextResponse<OpenAiResponsesApiResponse>(response);
+
+    if (!response.ok) {
+      const message =
+        payload?.error?.message || text || "The AI tutor could not generate a response.";
+
+      return {
+        failure: {
+          message,
+          providerLabel: "OpenAI",
+          rateLimited: isRateLimited(response.status, message),
+          status: response.status
+        },
+        ok: false
+      };
+    }
+
+    const answer = (payload ? extractOutputText(payload) : text).trim();
+
+    if (!answer) {
+      return {
+        failure: {
+          message: "OpenAI returned an empty response.",
+          providerLabel: "OpenAI",
+          rateLimited: false,
+          status: 502
+        },
+        ok: false
+      };
+    }
+
+    return {
+      ok: true,
+      value: {
+        answer,
+        providerLabel: "OpenAI"
+      }
+    };
+  } catch (error) {
+    return {
+      failure: {
+        message:
+          error instanceof Error ? error.message : "OpenAI is temporarily unavailable.",
+        providerLabel: "OpenAI",
+        rateLimited: false,
+        status: 503
+      },
+      ok: false
+    };
+  }
+}
+
 export async function POST(request: NextRequest) {
   if (!isTrustedRequestOrigin(request)) {
     return jsonNoStore({ error: "Cross-site requests are not allowed." }, 403);
@@ -188,7 +377,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const githubToken = process.env.GITHUB_TOKEN;
+  const githubToken = process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN;
   const openAiApiKey = process.env.OPENAI_API_KEY;
 
   if (!githubToken && !openAiApiKey) {
@@ -229,124 +418,65 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let answer = "";
-
-    if (githubToken) {
-      const response = await fetch("https://models.github.ai/inference/chat/completions", {
-        cache: "no-store",
-        method: "POST",
-        signal: AbortSignal.timeout(15_000),
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${githubToken}`,
-          "Content-Type": "application/json",
-          "X-GitHub-Api-Version": "2022-11-28"
-        },
-        body: JSON.stringify({
-          model: process.env.GITHUB_MODELS_MODEL ?? "openai/gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: NETWORKING_TUTOR_SYSTEM_PROMPT
-            },
-            {
-              role: "user",
-              content: buildTutorUserPrompt({
+    const providerAttempts = [
+      ...(openAiApiKey
+        ? [
+            () =>
+              requestOpenAiTutorResponse({
+                openAiApiKey,
                 question,
                 lessonContext
               })
-            }
           ]
-        })
-      });
-      const { json: payload, text } =
-        await readJsonOrTextResponse<GitHubModelsChatCompletionsResponse>(response);
+        : []),
+      ...(githubToken
+        ? [
+            () =>
+              requestGitHubModelsTutorResponse({
+                githubToken,
+                question,
+                lessonContext
+              })
+          ]
+        : [])
+    ];
 
-      if (!response.ok) {
-        const message =
-          payload?.error?.message ??
-          (text || "GitHub Models could not generate a response.");
+    let answer = "";
+    const failures: TutorProviderFailure[] = [];
 
-        if (process.env.NODE_ENV !== "production" && isRateLimited(response.status, message)) {
-          return jsonNoStore(
-            buildDevFallbackPayload({
-              question,
-              lessonContext,
-              providerLabel: "GitHub Models"
-            })
-          );
-        }
+    for (const attemptProvider of providerAttempts) {
+      const result = await attemptProvider();
 
-        return jsonNoStore(
-          {
-            error:
-              response.status === 429
-                ? "GitHub Models rate limit reached. Use a token with models:read, reduce request frequency, switch to a lighter model like openai/gpt-4o-mini, or enable paid usage."
-                : process.env.NODE_ENV === "production"
-                  ? "The AI tutor is temporarily unavailable. Please try again shortly."
-                  : message
-          },
-          response.status
-        );
+      if (result.ok) {
+        answer = result.value.answer;
+        break;
       }
 
-      answer = payload ? extractGitHubModelsText(payload) : text;
-    } else {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        cache: "no-store",
-        method: "POST",
-        signal: AbortSignal.timeout(15_000),
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openAiApiKey}`
-        },
-        body: JSON.stringify({
-          model: process.env.OPENAI_TUTOR_MODEL ?? "gpt-5-mini",
-          instructions: NETWORKING_TUTOR_SYSTEM_PROMPT,
-          input: buildTutorUserPrompt({
-            question,
-            lessonContext
-          }),
-          max_output_tokens: 700
-        })
-      });
-
-      const { json: payload, text } =
-        await readJsonOrTextResponse<OpenAiResponsesApiResponse>(response);
-
-      if (!response.ok) {
-        const message =
-          payload?.error?.message ??
-          (text || "The AI tutor could not generate a response.");
-
-        if (process.env.NODE_ENV !== "production" && isRateLimited(response.status, message)) {
-          return jsonNoStore(
-            buildDevFallbackPayload({
-              question,
-              lessonContext,
-              providerLabel: "OpenAI"
-            })
-          );
-        }
-
-        return jsonNoStore(
-          {
-            error:
-              process.env.NODE_ENV === "production"
-                ? "The AI tutor is temporarily unavailable. Please try again shortly."
-                : message
-          },
-          response.status
-        );
-      }
-
-      answer = payload ? extractOutputText(payload) : text;
+      failures.push(result.failure);
     }
 
     if (!answer) {
+      const lastFailure = failures.at(-1);
+      const rateLimitedFailure = failures.find((failure) => failure.rateLimited);
+
+      if (process.env.NODE_ENV !== "production" && rateLimitedFailure) {
+        return jsonNoStore(
+          buildDevFallbackPayload({
+            question,
+            lessonContext,
+            providerLabel: rateLimitedFailure.providerLabel
+          })
+        );
+      }
+
       return jsonNoStore(
-        { error: "The AI tutor returned an empty response. Please try again." },
-        502
+        {
+          error:
+            process.env.NODE_ENV === "production"
+              ? "The AI tutor is temporarily unavailable. Please try again shortly."
+              : lastFailure?.message ?? "The AI tutor returned an empty response. Please try again."
+        },
+        lastFailure?.status ?? 502
       );
     }
 
