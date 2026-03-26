@@ -57,6 +57,13 @@ type TutorProviderFailure = {
   status: number;
 };
 
+type TutorResponsePayload = {
+  answer?: string;
+  error?: string;
+  persistenceWarning?: string | null;
+  providerDebug?: string;
+};
+
 type TutorProviderResult =
   | {
       ok: true;
@@ -167,6 +174,24 @@ function jsonNoStore(body: Record<string, unknown>, status = 200) {
   });
 }
 
+function getGitHubModelsDebugContext() {
+  return {
+    model: process.env.GITHUB_MODELS_MODEL ?? "openai/gpt-4o-mini",
+    tokenSource: process.env.GITHUB_MODELS_TOKEN
+      ? "GITHUB_MODELS_TOKEN"
+      : process.env.GITHUB_TOKEN
+        ? "GITHUB_TOKEN"
+        : "none"
+  };
+}
+
+function getOpenAiDebugContext() {
+  return {
+    model: process.env.OPENAI_TUTOR_MODEL ?? "gpt-5-mini",
+    tokenSource: process.env.OPENAI_API_KEY ? "OPENAI_API_KEY" : "none"
+  };
+}
+
 function isRateLimited(status: number, message: string) {
   const normalized = message.toLowerCase();
 
@@ -202,20 +227,43 @@ function getProviderRequestErrorMessage(providerLabel: string, error: unknown) {
   return error instanceof Error ? error.message : `${providerLabel} is temporarily unavailable.`;
 }
 
+function buildProviderDebugSummary(failures: TutorProviderFailure[]) {
+  if (failures.length === 0) {
+    return null;
+  }
+
+  return failures
+    .map((failure) => {
+      const context =
+        failure.providerLabel === "GitHub Models"
+          ? getGitHubModelsDebugContext()
+          : getOpenAiDebugContext();
+
+      return `${failure.providerLabel} status=${failure.status} rateLimited=${failure.rateLimited} model=${context.model} tokenSource=${context.tokenSource} message="${failure.message}"`;
+    })
+    .join(" | ");
+}
+
 function buildFallbackPayload(input: {
+  failures: TutorProviderFailure[];
   question: string;
   lessonContext?: string | null;
   providerLabel: string;
   reason: "rate_limited" | "temporarily_unavailable";
-}) {
+}): TutorResponsePayload {
+  const providerDebug =
+    process.env.NODE_ENV !== "production"
+      ? buildProviderDebugSummary(input.failures) ?? undefined
+      : undefined;
   const persistenceWarning =
     input.reason === "rate_limited"
       ? `${input.providerLabel} is rate-limited right now, so the AI tutor is using a built-in backup response.`
-      : `${input.providerLabel} is temporarily unavailable, so the AI tutor is using a built-in backup response.`;
+      : `${input.providerLabel} could not return a live answer, so the AI tutor switched to a built-in backup response. If this keeps happening while the playground works, verify your deployed GitHub Models token and model settings, then redeploy.`;
 
   return {
     answer: buildTutorFallbackResponse(input),
-    persistenceWarning
+    persistenceWarning,
+    ...(providerDebug ? { providerDebug } : {})
   };
 }
 
@@ -515,10 +563,15 @@ export async function POST(request: NextRequest) {
       const lastFailure = failures.at(-1);
       const rateLimitedFailure = failures.find((failure) => failure.rateLimited);
       const transientFailure = failures.find(isTemporarilyUnavailableFailure);
+      const providerDebug =
+        process.env.NODE_ENV !== "production"
+          ? buildProviderDebugSummary(failures) ?? undefined
+          : undefined;
 
       if (rateLimitedFailure) {
         return jsonNoStore(
           buildFallbackPayload({
+            failures,
             question,
             lessonContext,
             providerLabel: rateLimitedFailure.providerLabel,
@@ -530,6 +583,7 @@ export async function POST(request: NextRequest) {
       if (transientFailure) {
         return jsonNoStore(
           buildFallbackPayload({
+            failures,
             question,
             lessonContext,
             providerLabel: transientFailure.providerLabel,
@@ -543,7 +597,8 @@ export async function POST(request: NextRequest) {
           error:
             process.env.NODE_ENV === "production"
               ? "The AI tutor is temporarily unavailable. Please try again shortly."
-              : lastFailure?.message ?? "The AI tutor returned an empty response. Please try again."
+              : lastFailure?.message ?? "The AI tutor returned an empty response. Please try again.",
+          ...(providerDebug ? { providerDebug } : {})
         },
         lastFailure?.status ?? 502
       );

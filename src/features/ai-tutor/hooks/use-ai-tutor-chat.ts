@@ -12,6 +12,7 @@ type TutorApiPayload = {
   answer?: string;
   error?: string;
   persistenceWarning?: string | null;
+  providerDebug?: string;
 };
 
 function toMessages(history: AiTutorSessionEntry[]): AiTutorMessage[] {
@@ -83,6 +84,18 @@ export function useAiTutorChat(input: {
   const [tutorNote, setTutorNote] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const buildTutorNote = useCallback((payload: TutorApiPayload) => {
+    const notes = [payload.persistenceWarning];
+
+    if (payload.providerDebug) {
+      notes.push(`Debug: ${payload.providerDebug}`);
+    }
+
+    const message = notes.filter(Boolean).join(" ");
+
+    return message || null;
+  }, []);
+
   const readTutorApiPayload = useCallback(async (response: Response) => {
     const responseText = await response.text();
     const trimmed = responseText.trim();
@@ -137,7 +150,11 @@ export function useAiTutorChat(input: {
           const payload = await readTutorApiPayload(response);
 
           if (!response.ok || !payload.answer) {
-            throw new Error(payload.error ?? "The AI tutor could not answer right now.");
+            const debugSuffix = payload.providerDebug ? ` Debug: ${payload.providerDebug}` : "";
+
+            throw new Error(
+              `${payload.error ?? "The AI tutor could not answer right now."}${debugSuffix}`
+            );
           }
 
           const answer = payload.answer;
@@ -151,7 +168,7 @@ export function useAiTutorChat(input: {
               createdAt: new Date().toISOString()
             }
           ]);
-          setTutorNote(payload.persistenceWarning ?? null);
+          setTutorNote(buildTutorNote(payload));
         } catch (requestError) {
           setError(
             requestError instanceof Error
@@ -161,7 +178,7 @@ export function useAiTutorChat(input: {
         }
       });
     },
-    [input.context.lessonContext, readTutorApiPayload]
+    [buildTutorNote, input.context.lessonContext, readTutorApiPayload]
   );
 
   useEffect(() => {
