@@ -17,6 +17,8 @@ const MAX_QUESTION_LENGTH = 1500;
 const MAX_CONTEXT_LENGTH = 240;
 const AI_TUTOR_PROVIDER_TIMEOUT_MS = 60_000;
 const AI_TUTOR_MAX_OUTPUT_TOKENS = 500;
+const AI_TUTOR_GITHUB_RETRY_ATTEMPTS = 2;
+const AI_TUTOR_GITHUB_RETRY_DELAY_MS = 1_500;
 const AI_TUTOR_RATE_LIMIT = {
   limit: 12,
   windowMs: 60_000
@@ -53,6 +55,7 @@ type TutorProviderSuccess = {
 
 type TutorProviderFailure = {
   message: string;
+  model?: string;
   providerLabel: string;
   rateLimited: boolean;
   status: number;
@@ -240,9 +243,34 @@ function buildProviderDebugSummary(failures: TutorProviderFailure[]) {
           ? getGitHubModelsDebugContext()
           : getOpenAiDebugContext();
 
-      return `${failure.providerLabel} status=${failure.status} rateLimited=${failure.rateLimited} model=${context.model} tokenSource=${context.tokenSource} message="${failure.message}"`;
+      return `${failure.providerLabel} status=${failure.status} rateLimited=${failure.rateLimited} model=${failure.model ?? context.model} tokenSource=${context.tokenSource} message="${failure.message}"`;
     })
     .join(" | ");
+}
+
+function getGitHubModelsToTry() {
+  const primaryModel = process.env.GITHUB_MODELS_MODEL ?? "openai/gpt-4o-mini";
+  const fallbackModel = process.env.GITHUB_MODELS_FALLBACK_MODEL?.trim();
+
+  return [primaryModel, fallbackModel]
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+function shouldRetryGitHubModelsFailure(failure: TutorProviderFailure) {
+  if (failure.rateLimited) {
+    return false;
+  }
+
+  return (
+    failure.status >= 500 ||
+    failure.message.toLowerCase().includes("timed out") ||
+    failure.message.toLowerCase().includes("server had an error")
+  );
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildFallbackPayload(input: {
@@ -285,6 +313,7 @@ function isTemporarilyUnavailableFailure(failure: TutorProviderFailure) {
 async function requestGitHubModelsTutorResponse(input: {
   githubToken: string;
   lessonContext?: string | null;
+  model: string;
   question: string;
 }): Promise<TutorProviderResult> {
   try {
@@ -299,7 +328,7 @@ async function requestGitHubModelsTutorResponse(input: {
         "X-GitHub-Api-Version": "2022-11-28"
       },
       body: JSON.stringify({
-        model: process.env.GITHUB_MODELS_MODEL ?? "openai/gpt-4o-mini",
+        model: input.model,
         max_tokens: AI_TUTOR_MAX_OUTPUT_TOKENS,
         messages: [
           {
@@ -327,6 +356,7 @@ async function requestGitHubModelsTutorResponse(input: {
       return {
         failure: {
           message,
+          model: input.model,
           providerLabel: "GitHub Models",
           rateLimited: isRateLimited(response.status, message),
           status: response.status
@@ -341,6 +371,7 @@ async function requestGitHubModelsTutorResponse(input: {
       return {
         failure: {
           message: "GitHub Models returned an empty response.",
+          model: input.model,
           providerLabel: "GitHub Models",
           rateLimited: false,
           status: 502
@@ -360,6 +391,7 @@ async function requestGitHubModelsTutorResponse(input: {
     return {
       failure: {
         message: getProviderRequestErrorMessage("GitHub Models", error),
+        model: input.model,
         providerLabel: "GitHub Models",
         rateLimited: false,
         status: 503
@@ -371,6 +403,7 @@ async function requestGitHubModelsTutorResponse(input: {
 
 async function requestOpenAiTutorResponse(input: {
   lessonContext?: string | null;
+  model: string;
   openAiApiKey: string;
   question: string;
 }): Promise<TutorProviderResult> {
@@ -384,7 +417,7 @@ async function requestOpenAiTutorResponse(input: {
         Authorization: `Bearer ${input.openAiApiKey}`
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_TUTOR_MODEL ?? "gpt-5-mini",
+        model: input.model,
         instructions: NETWORKING_TUTOR_SYSTEM_PROMPT,
         input: buildTutorUserPrompt({
           question: input.question,
@@ -404,6 +437,7 @@ async function requestOpenAiTutorResponse(input: {
       return {
         failure: {
           message,
+          model: input.model,
           providerLabel: "OpenAI",
           rateLimited: isRateLimited(response.status, message),
           status: response.status
@@ -418,6 +452,7 @@ async function requestOpenAiTutorResponse(input: {
       return {
         failure: {
           message: "OpenAI returned an empty response.",
+          model: input.model,
           providerLabel: "OpenAI",
           rateLimited: false,
           status: 502
@@ -437,6 +472,7 @@ async function requestOpenAiTutorResponse(input: {
     return {
       failure: {
         message: getProviderRequestErrorMessage("OpenAI", error),
+        model: input.model,
         providerLabel: "OpenAI",
         rateLimited: false,
         status: 503
@@ -524,41 +560,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const providerAttempts = [
-      ...(githubToken
-        ? [
-            () =>
-              requestGitHubModelsTutorResponse({
-                githubToken,
-                question,
-                lessonContext
-              })
-          ]
-        : []),
-      ...(openAiApiKey
-        ? [
-            () =>
-              requestOpenAiTutorResponse({
-                openAiApiKey,
-                question,
-                lessonContext
-              })
-          ]
-        : [])
-    ];
-
     let answer = "";
     const failures: TutorProviderFailure[] = [];
 
-    for (const attemptProvider of providerAttempts) {
-      const result = await attemptProvider();
+    if (githubToken) {
+      for (const model of getGitHubModelsToTry()) {
+        for (let attempt = 1; attempt <= AI_TUTOR_GITHUB_RETRY_ATTEMPTS; attempt += 1) {
+          const result = await requestGitHubModelsTutorResponse({
+            githubToken,
+            model,
+            question,
+            lessonContext
+          });
+
+          if (result.ok) {
+            answer = result.value.answer;
+            break;
+          }
+
+          failures.push(result.failure);
+
+          if (
+            attempt < AI_TUTOR_GITHUB_RETRY_ATTEMPTS &&
+            shouldRetryGitHubModelsFailure(result.failure)
+          ) {
+            await wait(AI_TUTOR_GITHUB_RETRY_DELAY_MS);
+            continue;
+          }
+
+          break;
+        }
+
+        if (answer) {
+          break;
+        }
+      }
+    }
+
+    if (!answer && openAiApiKey) {
+      const result = await requestOpenAiTutorResponse({
+        openAiApiKey,
+        model: process.env.OPENAI_TUTOR_MODEL ?? "gpt-5-mini",
+        question,
+        lessonContext
+      });
 
       if (result.ok) {
         answer = result.value.answer;
-        break;
+      } else {
+        failures.push(result.failure);
       }
-
-      failures.push(result.failure);
     }
 
     if (!answer) {
