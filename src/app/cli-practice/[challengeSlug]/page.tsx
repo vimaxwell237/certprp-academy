@@ -16,18 +16,9 @@ import { LabDifficultyBadge } from "@/features/labs/components/lab-difficulty-ba
 import { LabStatusBadge } from "@/features/labs/components/lab-status-badge";
 import { ContextualSupportCta } from "@/features/support/components/contextual-support-cta";
 import { APP_ROUTES } from "@/lib/auth/redirects";
+import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
-
-function isNavigationNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const digest =
-    "digest" in error && typeof error.digest === "string" ? error.digest : error.message;
-
-  return digest.includes("NEXT_HTTP_ERROR_FALLBACK");
-}
+import { loadOptionalPageData } from "@/lib/optional-page-data";
 
 export default async function CliChallengeDetailPage({
   params
@@ -62,18 +53,21 @@ export default async function CliChallengeDetailPage({
   }
 
   try {
-    const [challenge, activeAttempt] = await Promise.all([
-      fetchCliChallengeDetail(user.id, challengeSlug),
-      fetchActiveCliAttemptState(user.id, challengeSlug)
-    ]);
+    const challenge = await fetchCliChallengeDetail(user.id, challengeSlug);
 
     if (!challenge) {
       notFound();
     }
 
+    const activeAttempt = await loadOptionalPageData(
+      "cli-active-attempt",
+      () => fetchActiveCliAttemptState(user.id, challengeSlug),
+      null
+    );
+
     return (
-      <section className="w-full max-w-5xl space-y-8 pb-12">
-        <div className="space-y-4 rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-6 py-8 text-white shadow-soft lg:px-10">
+      <section className="w-full max-w-5xl space-y-6 pb-12 sm:space-y-8">
+        <div className="space-y-4 rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
           <Link
             className="inline-flex text-sm font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:text-white"
             href={APP_ROUTES.cliPractice}
@@ -93,7 +87,7 @@ export default async function CliChallengeDetailPage({
             </span>
           </div>
 
-          <h1 className="font-display text-4xl font-bold tracking-tight">{challenge.title}</h1>
+          <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">{challenge.title}</h1>
           <p className="max-w-3xl text-slate-100">{challenge.summary}</p>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -112,7 +106,7 @@ export default async function CliChallengeDetailPage({
 
         <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-5">
-            <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+            <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                 Scenario
               </p>
@@ -121,7 +115,7 @@ export default async function CliChallengeDetailPage({
               </p>
             </div>
 
-            <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+            <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                 Objectives
               </p>
@@ -132,7 +126,7 @@ export default async function CliChallengeDetailPage({
           </div>
 
           <div className="space-y-5">
-            <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+            <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                 Session Control
               </p>
@@ -168,7 +162,7 @@ export default async function CliChallengeDetailPage({
               </div>
             </div>
 
-            <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+            <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                 Step Preview
               </p>
@@ -196,11 +190,10 @@ export default async function CliChallengeDetailPage({
       </section>
     );
   } catch (error) {
-    if (isNavigationNotFoundError(error)) {
-      throw error;
-    }
-
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = getPublicPageErrorMessage(
+      error,
+      "CLI challenge details could not be loaded right now."
+    );
 
     return (
       <section className="w-full max-w-5xl space-y-6 pb-12">
@@ -213,7 +206,7 @@ export default async function CliChallengeDetailPage({
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           <p className="font-semibold">Unable to load this CLI challenge.</p>
           <p className="mt-2 text-sm">
-            Confirm the Phase 6 migration and seed SQL has been executed in Supabase.
+            This challenge may be unavailable, still being updated, or temporarily inaccessible.
           </p>
           <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs">{message}</p>
         </div>

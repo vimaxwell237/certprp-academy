@@ -9,19 +9,8 @@ import {
 import { SupportThread } from "@/features/support/components/support-thread";
 import { fetchSupportRequestDetail } from "@/features/support/data/support-service";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
-
-function isNavigationNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const digest =
-    "digest" in error && typeof error.digest === "string" ? error.digest : error.message;
-
-  return digest.includes("NEXT_HTTP_ERROR_FALLBACK");
-}
 
 export default async function SupportRequestDetailPage({
   params
@@ -74,11 +63,7 @@ export default async function SupportRequestDetailPage({
       </section>
     );
   } catch (error) {
-    if (isNavigationNotFoundError(error)) {
-      throw error;
-    }
-
-    const message = getPublicErrorMessage(
+    const message = getPublicPageErrorMessage(
       error,
       "Support thread data could not be loaded right now."
     );

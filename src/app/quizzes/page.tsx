@@ -40,7 +40,7 @@ export default async function QuizzesPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan">
             Practice Questions
           </p>
-          <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
             Quizzes
           </h1>
           <p className="max-w-2xl text-base text-slate">
@@ -84,7 +84,7 @@ export default async function QuizzesPage() {
 
     return (
       <section className="w-full space-y-6 pb-12">
-        <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+        <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
           Quizzes
         </h1>
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">

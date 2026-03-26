@@ -175,12 +175,12 @@ export default async function PricingPage({
     <section className="w-full max-w-6xl space-y-8 pb-12">
       <JsonLd data={structuredData} />
 
-      <div className="grid gap-6 rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-6 py-8 text-white shadow-soft lg:grid-cols-[1.2fr_0.8fr] lg:px-10">
+      <div className="grid gap-6 rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:grid-cols-[1.2fr_0.8fr] lg:px-10">
         <div className="space-y-4">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-100">
             CCNA Pricing
           </p>
-          <h1 className="font-display text-4xl font-bold tracking-tight lg:text-5xl">
+          <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
             CCNA pricing for learners who want labs, practice tests, and explanations in one place
           </h1>
           <p className="max-w-3xl text-base text-slate-100">
@@ -219,7 +219,7 @@ export default async function PricingPage({
 
       <section className="space-y-4">
         <div className="space-y-2">
-          <h2 className="font-display text-3xl font-bold tracking-tight text-ink">
+          <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
             Why learners upgrade from free access
           </h2>
           <p className="max-w-4xl text-base text-slate">
@@ -294,9 +294,9 @@ export default async function PricingPage({
         </div>
       </section>
 
-      <section className="space-y-4 rounded-[2rem] border border-white/70 bg-white/90 px-6 py-8 shadow-soft lg:px-10">
+      <section className="space-y-4 rounded-[1.5rem] border border-white/70 bg-white/90 px-4 py-6 shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
         <div className="space-y-2">
-          <h2 className="font-display text-3xl font-bold tracking-tight text-ink">
+          <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
             Which plan usually fits which buyer
           </h2>
           <p className="max-w-4xl text-base text-slate">
@@ -315,9 +315,9 @@ export default async function PricingPage({
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-6 py-8 text-white shadow-soft lg:px-10">
+      <section className="rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
         <div className="max-w-4xl space-y-4">
-          <h2 className="font-display text-3xl font-bold tracking-tight">
+          <h2 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
             Trust matters more on pricing pages than on almost any other page
           </h2>
           <p className="text-base text-slate-100">
@@ -342,7 +342,7 @@ export default async function PricingPage({
 
       <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
         <Card className="border-ink/5">
-          <h2 className="font-display text-3xl font-bold tracking-tight text-ink">
+          <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
             Objection handling
           </h2>
           <div className="mt-5 space-y-5">
@@ -356,7 +356,7 @@ export default async function PricingPage({
         </Card>
 
         <Card className="border-ink/5">
-          <h2 className="font-display text-3xl font-bold tracking-tight text-ink">
+          <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
             Supporting proof pages
           </h2>
           <p className="mt-3 text-base text-slate">

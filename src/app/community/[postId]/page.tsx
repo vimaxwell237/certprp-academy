@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { CommunityThread } from "@/features/community/components/community-thread";
 import { fetchCommunityPostDetail } from "@/features/community/data/community-service";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
 
 export default async function CommunityPostDetailPage({
@@ -39,7 +39,7 @@ export default async function CommunityPostDetailPage({
       </section>
     );
   } catch (error) {
-    const message = getPublicErrorMessage(
+    const message = getPublicPageErrorMessage(
       error,
       "Discussion data could not be loaded right now."
     );

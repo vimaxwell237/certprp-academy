@@ -18,8 +18,9 @@ import { RelatedSubnettingPanel } from "@/features/subnetting/components/related
 import { shouldShowSubnettingTrainerForLesson } from "@/features/subnetting/data/subnetting-practice-catalog";
 import { ContextualSupportCta } from "@/features/support/components/contextual-support-cta";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
+import { loadOptionalPageData } from "@/lib/optional-page-data";
 
 export default async function LessonDetailPage({
   params
@@ -50,23 +51,38 @@ export default async function LessonDetailPage({
     }
 
     const [relatedQuiz, relatedLabs, relatedCliChallenges] = await Promise.all([
-      fetchRelatedQuizForLessonContext(
-        user.id,
-        courseSlug,
-        moduleSlug,
-        lessonSlug
+      loadOptionalPageData(
+        "lesson-related-quiz",
+        () =>
+          fetchRelatedQuizForLessonContext(
+            user.id,
+            courseSlug,
+            moduleSlug,
+            lessonSlug
+          ),
+        null
       ),
-      fetchRelatedLabsForLessonContext(
-        user.id,
-        courseSlug,
-        moduleSlug,
-        lessonSlug
+      loadOptionalPageData(
+        "lesson-related-labs",
+        () =>
+          fetchRelatedLabsForLessonContext(
+            user.id,
+            courseSlug,
+            moduleSlug,
+            lessonSlug
+          ),
+        []
       ),
-      fetchRelatedCliChallengesForLessonContext(
-        user.id,
-        courseSlug,
-        moduleSlug,
-        lessonSlug
+      loadOptionalPageData(
+        "lesson-related-cli",
+        () =>
+          fetchRelatedCliChallengesForLessonContext(
+            user.id,
+            courseSlug,
+            moduleSlug,
+            lessonSlug
+          ),
+        []
       )
     ]);
     const showSubnettingTrainer = shouldShowSubnettingTrainerForLesson(
@@ -243,7 +259,7 @@ export default async function LessonDetailPage({
       </section>
     );
   } catch (error) {
-    const message = getPublicErrorMessage(
+    const message = getPublicPageErrorMessage(
       error,
       "Lesson details could not be loaded right now."
     );
@@ -259,7 +275,7 @@ export default async function LessonDetailPage({
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           <p className="font-semibold">Unable to load this lesson.</p>
           <p className="mt-2 text-sm">
-            Confirm Phase 2 migration/seed SQL has been executed and lesson slugs are valid.
+            This lesson may be unavailable, still being updated, or temporarily inaccessible.
           </p>
           <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs">{message}</p>
         </div>

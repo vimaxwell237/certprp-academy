@@ -9,19 +9,8 @@ import {
 import { QuizForm } from "@/features/quizzes/components/quiz-form";
 import { fetchQuizDetail } from "@/features/quizzes/data/quiz-service";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
-
-function isNavigationNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const digest =
-    "digest" in error && typeof error.digest === "string" ? error.digest : error.message;
-
-  return digest.includes("NEXT_HTTP_ERROR_FALLBACK");
-}
 
 export default async function QuizDetailPage({
   params
@@ -63,8 +52,8 @@ export default async function QuizDetailPage({
     }
 
     return (
-      <section className="w-full max-w-5xl space-y-8 pb-12">
-        <div className="space-y-4 rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-6 py-8 text-white shadow-soft lg:px-10">
+      <section className="w-full max-w-5xl space-y-6 pb-12 sm:space-y-8">
+        <div className="space-y-4 rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
           <Link
             className="inline-flex text-sm font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:text-white"
             href={APP_ROUTES.quizzes}
@@ -74,7 +63,7 @@ export default async function QuizDetailPage({
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100">
             {quiz.moduleTitle ?? quiz.courseTitle}
           </p>
-          <h1 className="font-display text-4xl font-bold tracking-tight">{quiz.title}</h1>
+          <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">{quiz.title}</h1>
           <p className="max-w-3xl text-slate-100">{quiz.description}</p>
 
           <div className="grid gap-3 text-sm sm:grid-cols-3">
@@ -114,11 +103,7 @@ export default async function QuizDetailPage({
       </section>
     );
   } catch (error) {
-    if (isNavigationNotFoundError(error)) {
-      throw error;
-    }
-
-    const message = getPublicErrorMessage(
+    const message = getPublicPageErrorMessage(
       error,
       "Quiz details could not be loaded right now."
     );

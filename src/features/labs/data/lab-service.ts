@@ -1,4 +1,5 @@
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/admin";
+import { hasSupabaseServiceRoleEnv } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type {
   DashboardLabSnapshot,
@@ -9,9 +10,13 @@ import type {
   RelatedLabSummary
 } from "@/types/lab";
 
-type ServerSupabaseClient = NonNullable<
+type ServiceSupabaseClient = NonNullable<
   Awaited<ReturnType<typeof createServiceRoleSupabaseClient>>
 >;
+type DashboardSupabaseClient = NonNullable<
+  Awaited<ReturnType<typeof createServerSupabaseClient>>
+>;
+type ReadSupabaseClient = ServiceSupabaseClient | DashboardSupabaseClient;
 
 type RelationValue<T> = T | T[] | null;
 
@@ -60,7 +65,7 @@ type RawLabRow = {
   estimated_minutes: number;
   module: RelationValue<RawModuleRef>;
   lesson: RelationValue<RawLessonRef>;
-  files: RawLabFile[] | null;
+  files?: RawLabFile[] | null;
 };
 
 type RawLabProgressRow = {
@@ -82,18 +87,33 @@ function relationFirst<T>(value: RelationValue<T> | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-async function getSupabaseClient() {
-  return createServiceRoleSupabaseClient();
+async function getReadSupabaseClient() {
+  if (hasSupabaseServiceRoleEnv()) {
+    return createServiceRoleSupabaseClient();
+  }
+
+  return createServerSupabaseClient();
 }
 
-async function fetchPublishedLabs(client: ServerSupabaseClient) {
-  const { data, error } = await client
-    .from("labs")
-    .select(
-      "id,title,slug,summary,objectives,instructions,topology_notes,expected_outcomes,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug),files:lab_files(id,file_name,file_path,file_type,sort_order)"
-    )
-    .eq("is_published", true)
-    .order("created_at", { ascending: true });
+async function fetchPublishedLabs(
+  client: ReadSupabaseClient,
+  includeFiles: boolean
+) {
+  const { data, error } = includeFiles
+    ? await client
+        .from("labs")
+        .select(
+          "id,title,slug,summary,objectives,instructions,topology_notes,expected_outcomes,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug),files:lab_files(id,file_name,file_path,file_type,sort_order)"
+        )
+        .eq("is_published", true)
+        .order("created_at", { ascending: true })
+    : await client
+        .from("labs")
+        .select(
+          "id,title,slug,summary,objectives,instructions,topology_notes,expected_outcomes,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug)"
+        )
+        .eq("is_published", true)
+        .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`Failed to fetch labs: ${error.message}`);
@@ -105,13 +125,13 @@ async function fetchPublishedLabs(client: ServerSupabaseClient) {
 async function fetchLabProgressMap(
   userId: string,
   labIds: string[],
-  client?: ServerSupabaseClient
+  client?: ReadSupabaseClient
 ) {
   if (labIds.length === 0) {
     return new Map<string, ProgressEntry>();
   }
 
-  const supabase = client ?? (await getSupabaseClient());
+  const supabase = client ?? (await getReadSupabaseClient());
 
   if (!supabase) {
     return new Map<string, ProgressEntry>();
@@ -173,7 +193,8 @@ export async function fetchLabCatalog(
   labs: LabListItem[];
   filterOptions: LabFilterOptions;
 }> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadFiles = hasSupabaseServiceRoleEnv();
 
   if (!supabase) {
     return {
@@ -185,7 +206,7 @@ export async function fetchLabCatalog(
     };
   }
 
-  const rawLabs = await fetchPublishedLabs(supabase);
+  const rawLabs = await fetchPublishedLabs(supabase, canReadFiles);
   const progressMap = await fetchLabProgressMap(
     userId,
     rawLabs.map((lab) => lab.id),
@@ -213,7 +234,7 @@ export async function fetchLabCatalog(
 }
 
 async function createSignedLabFileUrl(
-  client: ServerSupabaseClient,
+  client: ServiceSupabaseClient,
   filePath: string
 ) {
   const { data, error } = await client.storage
@@ -231,20 +252,30 @@ export async function fetchLabDetail(
   userId: string,
   labSlug: string
 ): Promise<LabDetail | null> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadFiles = hasSupabaseServiceRoleEnv();
 
   if (!supabase) {
     return null;
   }
 
-  const { data, error } = await supabase
-    .from("labs")
-    .select(
-      "id,title,slug,summary,objectives,instructions,topology_notes,expected_outcomes,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug),files:lab_files(id,file_name,file_path,file_type,sort_order)"
-    )
-    .eq("slug", labSlug)
-    .eq("is_published", true)
-    .maybeSingle();
+  const { data, error } = canReadFiles
+    ? await supabase
+        .from("labs")
+        .select(
+          "id,title,slug,summary,objectives,instructions,topology_notes,expected_outcomes,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug),files:lab_files(id,file_name,file_path,file_type,sort_order)"
+        )
+        .eq("slug", labSlug)
+        .eq("is_published", true)
+        .maybeSingle()
+    : await supabase
+        .from("labs")
+        .select(
+          "id,title,slug,summary,objectives,instructions,topology_notes,expected_outcomes,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug)"
+        )
+        .eq("slug", labSlug)
+        .eq("is_published", true)
+        .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to fetch lab detail: ${error.message}`);
@@ -261,23 +292,28 @@ export async function fetchLabDetail(
   const progressMap = await fetchLabProgressMap(userId, [lab.id], supabase);
   const progress = progressMap.get(lab.id);
 
-  const files = await Promise.all(
-    [...(lab.files ?? [])]
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map(async (file) => {
-        const downloadUrl = await createSignedLabFileUrl(supabase, file.file_path);
+  const files = canReadFiles
+    ? await Promise.all(
+        [...(lab.files ?? [])]
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map(async (file) => {
+            const downloadUrl = await createSignedLabFileUrl(
+              supabase as ServiceSupabaseClient,
+              file.file_path
+            );
 
-        return {
-          id: file.id,
-          fileName: file.file_name,
-          filePath: file.file_path,
-          fileType: file.file_type,
-          sortOrder: file.sort_order,
-          downloadUrl,
-          isAvailable: downloadUrl !== null
-        };
-      })
-  );
+            return {
+              id: file.id,
+              fileName: file.file_name,
+              filePath: file.file_path,
+              fileType: file.file_type,
+              sortOrder: file.sort_order,
+              downloadUrl,
+              isAvailable: downloadUrl !== null
+            };
+          })
+      )
+    : [];
 
   return {
     id: lab.id,
@@ -309,7 +345,7 @@ export async function upsertLabProgress(
     status: LabStatus;
   }
 ) {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     throw new Error("Supabase client is not available.");
@@ -341,20 +377,26 @@ export async function fetchModuleLabIndex(
   userId: string,
   moduleIds: string[]
 ): Promise<Record<string, RelatedLabSummary[]>> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadFiles = hasSupabaseServiceRoleEnv();
 
   if (!supabase || moduleIds.length === 0) {
     return {};
   }
 
-  const { data, error } = await supabase
-    .from("labs")
-    .select(
-      "id,title,slug,difficulty,estimated_minutes,module_id,files:lab_files(id)"
-    )
-    .in("module_id", moduleIds)
-    .eq("is_published", true)
-    .order("created_at", { ascending: true });
+  const { data, error } = canReadFiles
+    ? await supabase
+        .from("labs")
+        .select("id,title,slug,difficulty,estimated_minutes,module_id,files:lab_files(id)")
+        .in("module_id", moduleIds)
+        .eq("is_published", true)
+        .order("created_at", { ascending: true })
+    : await supabase
+        .from("labs")
+        .select("id,title,slug,difficulty,estimated_minutes,module_id")
+        .in("module_id", moduleIds)
+        .eq("is_published", true)
+        .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`Failed to fetch related labs: ${error.message}`);
@@ -401,7 +443,8 @@ export async function fetchRelatedLabsForLessonContext(
   moduleSlug: string,
   lessonSlug: string
 ): Promise<RelatedLabSummary[]> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadFiles = hasSupabaseServiceRoleEnv();
 
   if (!supabase) {
     return [];
@@ -447,14 +490,19 @@ export async function fetchRelatedLabsForLessonContext(
     throw new Error(`Failed to resolve lesson lab lesson: ${lessonError.message}`);
   }
 
-  let query = supabase
-    .from("labs")
-    .select("id,title,slug,difficulty,estimated_minutes,lesson_id,module_id,files:lab_files(id)")
-    .eq("module_id", moduleData.id as string)
-    .eq("is_published", true)
-    .order("created_at", { ascending: true });
-
-  const { data, error } = await query;
+  const { data, error } = canReadFiles
+    ? await supabase
+        .from("labs")
+        .select("id,title,slug,difficulty,estimated_minutes,lesson_id,module_id,files:lab_files(id)")
+        .eq("module_id", moduleData.id as string)
+        .eq("is_published", true)
+        .order("created_at", { ascending: true })
+    : await supabase
+        .from("labs")
+        .select("id,title,slug,difficulty,estimated_minutes,lesson_id,module_id")
+        .eq("module_id", moduleData.id as string)
+        .eq("is_published", true)
+        .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`Failed to fetch related lesson labs: ${error.message}`);

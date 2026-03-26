@@ -35,7 +35,7 @@ export default function RootLayout({
           <div className="pointer-events-none absolute inset-x-0 top-0 h-[32rem] bg-[radial-gradient(circle_at_top_left,_rgba(8,145,178,0.2),_transparent_45%)]" />
           <div className="pointer-events-none absolute inset-0 bg-grid-fade bg-[length:48px_48px] opacity-[0.03]" />
           <LayoutChrome />
-          <main className="relative mx-auto flex w-full max-w-7xl flex-1 px-6 py-10 lg:px-8">
+          <main className="relative mx-auto flex w-full max-w-7xl min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
             {children}
           </main>
         </div>

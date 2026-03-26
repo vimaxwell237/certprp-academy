@@ -27,13 +27,13 @@ export function TutorChatInterface({
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
       <div className="space-y-6">
-        <div className="rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-6 py-8 text-white shadow-soft lg:px-10">
+        <div className="rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-3">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-100">
                 AI Networking Tutor
               </p>
-              <h1 className="font-display text-4xl font-bold tracking-tight">
+              <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
                 Built-In CCNA Help
               </h1>
               <p className="max-w-3xl text-sm leading-7 text-slate-100">

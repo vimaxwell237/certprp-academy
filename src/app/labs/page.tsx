@@ -62,7 +62,7 @@ export default async function LabsPage({
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan">
             Packet Tracer Labs
           </p>
-          <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
             Labs
           </h1>
           <p className="max-w-2xl text-base text-slate">
@@ -158,7 +158,7 @@ export default async function LabsPage({
 
     return (
       <section className="w-full space-y-6 pb-12">
-        <h1 className="font-display text-4xl font-bold tracking-tight text-ink">Labs</h1>
+        <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">Labs</h1>
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           <p className="font-semibold">Unable to load lab data.</p>
           <p className="mt-2 text-sm">

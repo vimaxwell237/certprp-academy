@@ -1,5 +1,6 @@
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/admin";
 import { validateCliCommand } from "@/features/cli/lib/validation";
+import { hasSupabaseServiceRoleEnv } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type {
   CliAttemptState,
@@ -58,7 +59,7 @@ type RawCliChallenge = {
   estimated_minutes: number;
   module: RelationValue<RawModuleRef>;
   lesson: RelationValue<RawLessonRef>;
-  steps: RawCliStep[] | null;
+  steps?: RawCliStep[] | null;
 };
 
 type RawCliAttempt = {
@@ -96,6 +97,14 @@ function relationFirst<T>(value: RelationValue<T> | undefined): T | null {
 
 async function getSupabaseClient() {
   return createServiceRoleSupabaseClient();
+}
+
+async function getReadSupabaseClient() {
+  if (hasSupabaseServiceRoleEnv()) {
+    return createServiceRoleSupabaseClient();
+  }
+
+  return createServerSupabaseClient();
 }
 
 function mapStatus(
@@ -160,19 +169,28 @@ async function fetchAttemptRows(
 export async function fetchCliChallenges(
   userId: string
 ): Promise<CliChallengeListItem[]> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadSteps = hasSupabaseServiceRoleEnv();
 
   if (!supabase) {
     return [];
   }
 
-  const { data, error } = await supabase
-    .from("cli_challenges")
-    .select(
-      "id,title,slug,summary,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug),steps:cli_steps(id)"
-    )
-    .eq("is_published", true)
-    .order("created_at", { ascending: true });
+  const { data, error } = canReadSteps
+    ? await supabase
+        .from("cli_challenges")
+        .select(
+          "id,title,slug,summary,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug),steps:cli_steps(id)"
+        )
+        .eq("is_published", true)
+        .order("created_at", { ascending: true })
+    : await supabase
+        .from("cli_challenges")
+        .select(
+          "id,title,slug,summary,difficulty,estimated_minutes,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug)"
+        )
+        .eq("is_published", true)
+        .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`Failed to fetch CLI challenges: ${error.message}`);
@@ -576,18 +594,26 @@ export async function fetchModuleCliChallengeIndex(
   userId: string,
   moduleIds: string[]
 ): Promise<Record<string, RelatedCliChallengeSummary[]>> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadSteps = hasSupabaseServiceRoleEnv();
 
   if (!supabase || moduleIds.length === 0) {
     return {};
   }
 
-  const { data, error } = await supabase
-    .from("cli_challenges")
-    .select("id,title,slug,difficulty,estimated_minutes,module_id,steps:cli_steps(id)")
-    .in("module_id", moduleIds)
-    .eq("is_published", true)
-    .order("created_at", { ascending: true });
+  const { data, error } = canReadSteps
+    ? await supabase
+        .from("cli_challenges")
+        .select("id,title,slug,difficulty,estimated_minutes,module_id,steps:cli_steps(id)")
+        .in("module_id", moduleIds)
+        .eq("is_published", true)
+        .order("created_at", { ascending: true })
+    : await supabase
+        .from("cli_challenges")
+        .select("id,title,slug,difficulty,estimated_minutes,module_id")
+        .in("module_id", moduleIds)
+        .eq("is_published", true)
+        .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`Failed to fetch related CLI challenges: ${error.message}`);
@@ -634,7 +660,8 @@ export async function fetchRelatedCliChallengesForLessonContext(
   moduleSlug: string,
   lessonSlug: string
 ): Promise<RelatedCliChallengeSummary[]> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadSteps = hasSupabaseServiceRoleEnv();
 
   if (!supabase) {
     return [];
@@ -668,12 +695,19 @@ export async function fetchRelatedCliChallengesForLessonContext(
     .eq("slug", lessonSlug)
     .maybeSingle();
 
-  const { data, error } = await supabase
-    .from("cli_challenges")
-    .select("id,title,slug,difficulty,estimated_minutes,lesson_id,module_id,steps:cli_steps(id)")
-    .eq("module_id", moduleData.id as string)
-    .eq("is_published", true)
-    .order("created_at", { ascending: true });
+  const { data, error } = canReadSteps
+    ? await supabase
+        .from("cli_challenges")
+        .select("id,title,slug,difficulty,estimated_minutes,lesson_id,module_id,steps:cli_steps(id)")
+        .eq("module_id", moduleData.id as string)
+        .eq("is_published", true)
+        .order("created_at", { ascending: true })
+    : await supabase
+        .from("cli_challenges")
+        .select("id,title,slug,difficulty,estimated_minutes,lesson_id,module_id")
+        .eq("module_id", moduleData.id as string)
+        .eq("is_published", true)
+        .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`Failed to fetch related CLI lesson challenges: ${error.message}`);

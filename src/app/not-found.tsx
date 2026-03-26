@@ -12,11 +12,11 @@ export const metadata: Metadata = buildNoIndexMetadata({
 
 export default function NotFoundPage() {
   return (
-    <section className="mx-auto flex w-full max-w-3xl flex-col items-start gap-5 rounded-[2rem] border border-white/70 bg-white/90 px-6 py-10 shadow-soft lg:px-10">
+    <section className="mx-auto flex w-full max-w-3xl flex-col items-start gap-5 rounded-[1.5rem] border border-white/70 bg-white/90 px-4 py-6 shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
       <p className="text-sm font-semibold uppercase tracking-[0.22em] text-cyan">
         Page Not Found
       </p>
-      <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+      <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
         This page is not available.
       </h1>
       <p className="max-w-2xl text-base text-slate">

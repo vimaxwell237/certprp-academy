@@ -24,9 +24,30 @@ function normalizeSelectionText(value: string) {
 
 export function SelectionAskAiTutor() {
   const pathname = usePathname();
+  const [canShowSelectionPrompt, setCanShowSelectionPrompt] = useState(false);
   const [selectionState, setSelectionState] = useState<SelectionState>(null);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
+
+    function updatePromptAvailability() {
+      setCanShowSelectionPrompt(mediaQuery.matches);
+    }
+
+    updatePromptAvailability();
+    mediaQuery.addEventListener("change", updatePromptAvailability);
+
+    return () => {
+      mediaQuery.removeEventListener("change", updatePromptAvailability);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canShowSelectionPrompt) {
+      setSelectionState(null);
+      return;
+    }
+
     function clearSelectionState() {
       setSelectionState(null);
     }
@@ -104,9 +125,9 @@ export function SelectionAskAiTutor() {
       window.removeEventListener("scroll", clearSelectionState, true);
       window.removeEventListener("resize", clearSelectionState);
     };
-  }, []);
+  }, [canShowSelectionPrompt]);
 
-  if (!selectionState || pathname === "/ai-tutor") {
+  if (!canShowSelectionPrompt || !selectionState || pathname === "/ai-tutor") {
     return null;
   }
 

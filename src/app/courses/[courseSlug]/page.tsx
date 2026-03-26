@@ -8,8 +8,9 @@ import { ProgressIndicator } from "@/features/learning/components/progress-indic
 import { fetchCourseDetail } from "@/features/learning/data/learning-service";
 import { fetchModuleQuizIndex } from "@/features/quizzes/data/quiz-service";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
+import { loadOptionalPageData } from "@/lib/optional-page-data";
 
 export default async function CourseDetailPage({
   params
@@ -30,18 +31,22 @@ export default async function CourseDetailPage({
       notFound();
     }
 
+    const moduleIds = course.modules.map((module) => module.id);
     const [moduleQuizIndex, moduleLabIndex, moduleCliIndex] = await Promise.all([
-      fetchModuleQuizIndex(
-        user.id,
-        course.modules.map((module) => module.id)
+      loadOptionalPageData(
+        "course-module-quiz-index",
+        () => fetchModuleQuizIndex(user.id, moduleIds),
+        {}
       ),
-      fetchModuleLabIndex(
-        user.id,
-        course.modules.map((module) => module.id)
+      loadOptionalPageData(
+        "course-module-lab-index",
+        () => fetchModuleLabIndex(user.id, moduleIds),
+        {}
       ),
-      fetchModuleCliChallengeIndex(
-        user.id,
-        course.modules.map((module) => module.id)
+      loadOptionalPageData(
+        "course-module-cli-index",
+        () => fetchModuleCliChallengeIndex(user.id, moduleIds),
+        {}
       )
     ]);
 
@@ -153,7 +158,7 @@ export default async function CourseDetailPage({
       </section>
     );
   } catch (error) {
-    const message = getPublicErrorMessage(
+    const message = getPublicPageErrorMessage(
       error,
       "Course details could not be loaded right now."
     );
@@ -169,7 +174,7 @@ export default async function CourseDetailPage({
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           <p className="font-semibold">Unable to load this course.</p>
           <p className="mt-2 text-sm">
-            Confirm Phase 2 migration/seed SQL has been executed in Supabase.
+            This course may be unavailable, still being updated, or temporarily inaccessible.
           </p>
           <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs">{message}</p>
         </div>

@@ -5,7 +5,7 @@ export function CcnaSeoLinkRail({ currentRoute }: { currentRoute: string }) {
   const groups = getCcnaSeoLinkGroups(currentRoute)
 
   return (
-    <section className="space-y-6 rounded-[2rem] border border-white/70 bg-white/90 px-6 py-8 shadow-soft lg:px-10">
+    <section className="space-y-6 rounded-[1.5rem] border border-white/70 bg-white/90 px-4 py-6 shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
       {groups.map((group) => (
         <SeoRelatedContentCards
           cardClassName="bg-pearl/70"

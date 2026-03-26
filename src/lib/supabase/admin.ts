@@ -5,9 +5,12 @@ import {
   hasSupabaseServiceRoleEnv
 } from "@/lib/supabase/config";
 
+export const SUPABASE_SERVICE_ROLE_MISSING_MESSAGE =
+  "Supabase service role environment variables are not configured.";
+
 export function createServiceRoleSupabaseClient() {
   if (!hasSupabaseServiceRoleEnv()) {
-    throw new Error("Supabase service role environment variables are not configured.");
+    throw new Error(SUPABASE_SERVICE_ROLE_MISSING_MESSAGE);
   }
 
   const { supabaseUrl, supabaseServiceRoleKey } = getSupabaseServiceRoleEnv();
@@ -18,4 +21,11 @@ export function createServiceRoleSupabaseClient() {
       persistSession: false
     }
   });
+}
+
+export function isMissingServiceRoleConfigError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.includes(SUPABASE_SERVICE_ROLE_MISSING_MESSAGE)
+  );
 }

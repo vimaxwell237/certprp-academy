@@ -5,19 +5,8 @@ import { ExamReviewList } from "@/features/exams/components/exam-review-list";
 import { fetchExamAttemptResult } from "@/features/exams/data/exam-service";
 import { ContextualSupportCta } from "@/features/support/components/contextual-support-cta";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
-
-function isNavigationNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const digest =
-    "digest" in error && typeof error.digest === "string" ? error.digest : error.message;
-
-  return digest.includes("NEXT_HTTP_ERROR_FALLBACK");
-}
 
 export default async function ExamResultsPage({
   params
@@ -53,11 +42,7 @@ export default async function ExamResultsPage({
       </section>
     );
   } catch (error) {
-    if (isNavigationNotFoundError(error)) {
-      throw error;
-    }
-
-    const message = getPublicErrorMessage(
+    const message = getPublicPageErrorMessage(
       error,
       "Exam results could not be loaded right now."
     );

@@ -90,10 +90,10 @@ export function SeoSectionHeader({
           {eyebrow}
         </p>
       ) : null}
-      <h2 className="font-display text-3xl font-bold tracking-tight text-ink">
+      <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
         {title}
       </h2>
-      <p className="max-w-4xl text-base text-slate">{intro}</p>
+      <p className="max-w-4xl text-sm text-slate sm:text-base">{intro}</p>
     </div>
   )
 }
@@ -122,15 +122,15 @@ export function SeoHeroSection({
   asideContent?: ReactNode
 }) {
   return (
-    <section className="grid gap-6 rounded-[2rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,_rgba(8,145,178,0.16),_transparent_30%),linear-gradient(135deg,_rgba(255,255,255,0.96),_rgba(248,250,252,0.98))] px-6 py-10 shadow-soft lg:grid-cols-[1.2fr_0.8fr] lg:px-10">
+    <section className="grid gap-6 rounded-[1.5rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,_rgba(8,145,178,0.16),_transparent_30%),linear-gradient(135deg,_rgba(255,255,255,0.96),_rgba(248,250,252,0.98))] px-4 py-6 shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:grid-cols-[1.2fr_0.8fr] lg:px-10">
       <div className="space-y-5">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan">
           {eyebrow}
         </p>
-        <h1 className="font-display text-4xl font-bold tracking-tight text-ink lg:text-5xl">
+        <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl lg:text-5xl">
           {title}
         </h1>
-        <p className="max-w-3xl text-lg text-slate">{description}</p>
+        <p className="max-w-3xl text-base text-slate sm:text-lg">{description}</p>
         {points && points.length > 0 ? (
           <ul className="space-y-2 text-sm text-slate">
             {points.map((point) => (
@@ -157,7 +157,7 @@ export function SeoHeroSection({
       </div>
 
       <Card className="border-ink/5 bg-white/85">
-        <h2 className="font-display text-2xl font-semibold text-ink">{asideTitle}</h2>
+        <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">{asideTitle}</h2>
         {asideDescription ? <p className="mt-3 text-base text-slate">{asideDescription}</p> : null}
         {asidePoints && asidePoints.length > 0 ? (
           <ul className="mt-4 space-y-3 text-sm text-slate">
@@ -187,7 +187,7 @@ export function SeoCardGrid({
     <div className={cn("grid gap-4", getGridColumnsClass(columns))}>
       {items.map((item) => (
         <Card className={cn("border-ink/5", cardClassName)} key={item.title}>
-          <h3 className="font-display text-2xl font-semibold text-ink">{item.title}</h3>
+          <h3 className="font-display text-xl font-semibold text-ink sm:text-2xl">{item.title}</h3>
           <p className="mt-3 text-base text-slate">{item.description}</p>
           {item.bullets && item.bullets.length > 0 ? (
             <ul className="mt-4 space-y-2 text-sm text-slate">
@@ -229,7 +229,7 @@ export function SeoTrustSection({
   if (variant === "card") {
     return (
       <Card className={cn("border-ink/5", className)}>
-        <h2 className="font-display text-3xl font-bold tracking-tight text-ink">
+        <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
           {title}
         </h2>
         <p className="mt-3 text-base text-slate">{description}</p>
@@ -250,12 +250,12 @@ export function SeoTrustSection({
   return (
     <section
       className={cn(
-        "rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-6 py-8 text-white shadow-soft lg:px-10",
+        "rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10",
         className
       )}
     >
       <div className="max-w-4xl space-y-4">
-        <h2 className="font-display text-3xl font-bold tracking-tight">{title}</h2>
+        <h2 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">{title}</h2>
         <p className="text-base text-slate-100">{description}</p>
         <div className="grid gap-3 md:grid-cols-3">
           {points.map((point) => (
@@ -293,7 +293,7 @@ export function SeoRelatedContentCards({
       <div className={cn("grid gap-4", getGridColumnsClass(columns))}>
         {items.map((item) => (
           <Card className={cn("border-ink/5", cardClassName)} key={item.route}>
-            <h3 className="font-display text-2xl font-semibold text-ink">
+            <h3 className="font-display text-xl font-semibold text-ink sm:text-2xl">
               <Link className="transition hover:text-cyan" href={item.route}>
                 {item.title}
               </Link>
@@ -371,14 +371,14 @@ export function SeoCtaBanner({
     <section
       className={
         isDark
-          ? "rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-6 py-8 text-white shadow-soft lg:px-10"
-          : "rounded-[2rem] border border-white/70 bg-white/90 px-6 py-8 shadow-soft lg:px-10"
+          ? "rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10"
+          : "rounded-[1.5rem] border border-white/70 bg-white/90 px-4 py-6 shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10"
       }
     >
       <div className="max-w-4xl space-y-4">
         <h2
           className={cn(
-            "font-display text-3xl font-bold tracking-tight",
+            "font-display text-2xl font-bold tracking-tight sm:text-3xl",
             isDark ? "text-white" : "text-ink"
           )}
         >

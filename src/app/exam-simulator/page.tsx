@@ -34,11 +34,11 @@ export default async function ExamSimulatorPage() {
 
     return (
       <section className="w-full max-w-6xl space-y-8 pb-12">
-        <div className="space-y-4 rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(14,116,144,0.92))] px-6 py-8 text-white shadow-soft lg:px-10">
+        <div className="space-y-4 rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(14,116,144,0.92))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-100">
             Exam Simulator
           </p>
-          <h1 className="font-display text-4xl font-bold tracking-tight">
+          <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
             Timed CCNA Exam Modes
           </h1>
           <p className="max-w-3xl text-base text-slate-100">

@@ -86,9 +86,9 @@ export default async function CheckoutSuccessPage({
 
   return (
     <section className="w-full max-w-4xl space-y-6 pb-12">
-      <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-8 text-emerald-900 shadow-soft">
+      <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5 text-emerald-900 shadow-soft sm:rounded-[2rem] sm:p-8">
         <p className="text-sm font-semibold uppercase tracking-[0.18em]">Checkout Success</p>
-        <h1 className="mt-3 font-display text-4xl font-bold tracking-tight">
+        <h1 className="mt-3 font-display text-3xl font-bold tracking-tight sm:text-4xl">
           {accessState.plan.name} is now active
         </h1>
         <p className="mt-3 text-base">

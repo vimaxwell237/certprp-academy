@@ -47,7 +47,7 @@ export default async function BillingPage({
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan">
             Billing
           </p>
-          <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
             Subscription and access
           </h1>
         </div>
@@ -77,7 +77,7 @@ export default async function BillingPage({
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan">
           Billing
         </p>
-        <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+        <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
           Subscription and access
         </h1>
         <p className="max-w-2xl text-base text-slate">

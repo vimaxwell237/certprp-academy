@@ -13,19 +13,8 @@ import { LabStatusBadge } from "@/features/labs/components/lab-status-badge";
 import { fetchLabDetail } from "@/features/labs/data/lab-service";
 import { ContextualSupportCta } from "@/features/support/components/contextual-support-cta";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
-
-function isNavigationNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const digest =
-    "digest" in error && typeof error.digest === "string" ? error.digest : error.message;
-
-  return digest.includes("NEXT_HTTP_ERROR_FALLBACK");
-}
 
 export default async function LabDetailPage({
   params
@@ -67,8 +56,8 @@ export default async function LabDetailPage({
     }
 
     return (
-      <section className="w-full max-w-5xl space-y-8 pb-12">
-        <div className="space-y-4 rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-6 py-8 text-white shadow-soft lg:px-10">
+      <section className="w-full max-w-5xl space-y-6 pb-12 sm:space-y-8">
+        <div className="space-y-4 rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
           <Link
             className="inline-flex text-sm font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:text-white"
             href={APP_ROUTES.labs}
@@ -85,7 +74,7 @@ export default async function LabDetailPage({
             </span>
           </div>
 
-          <h1 className="font-display text-4xl font-bold tracking-tight">{lab.title}</h1>
+          <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">{lab.title}</h1>
           <p className="max-w-3xl text-slate-100">{lab.summary}</p>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -104,14 +93,14 @@ export default async function LabDetailPage({
 
         <div className="grid gap-5 lg:grid-cols-[1.3fr_0.9fr]">
           <div className="space-y-5">
-            <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+            <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                 Objectives
               </p>
               <p className="mt-3 whitespace-pre-line leading-7 text-ink">{lab.objectives}</p>
             </div>
 
-            <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+            <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                 Instructions
               </p>
@@ -121,7 +110,7 @@ export default async function LabDetailPage({
             </div>
 
             {lab.topologyNotes ? (
-              <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+              <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                   Topology Notes
                 </p>
@@ -131,7 +120,7 @@ export default async function LabDetailPage({
               </div>
             ) : null}
 
-            <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+            <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                 Expected Outcomes
               </p>
@@ -142,7 +131,7 @@ export default async function LabDetailPage({
           </div>
 
           <div className="space-y-5">
-            <div className="rounded-3xl border border-ink/5 bg-white/90 p-6 shadow-soft">
+            <div className="rounded-3xl border border-ink/5 bg-white/90 p-5 shadow-soft sm:p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
                 Lab Actions
               </p>
@@ -194,11 +183,7 @@ export default async function LabDetailPage({
       </section>
     );
   } catch (error) {
-    if (isNavigationNotFoundError(error)) {
-      throw error;
-    }
-
-    const message = getPublicErrorMessage(
+    const message = getPublicPageErrorMessage(
       error,
       "Lab details could not be loaded right now."
     );

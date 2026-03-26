@@ -104,7 +104,7 @@ export function CcnaTrustPage({ page }: CcnaTrustPageProps) {
         />
       </section>
 
-      <section className="space-y-4 rounded-[2rem] border border-white/70 bg-white/90 px-6 py-8 shadow-soft lg:px-10">
+      <section className="space-y-4 rounded-[1.5rem] border border-white/70 bg-white/90 px-4 py-6 shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
         <SeoSectionHeader intro={page.allowedIntro} title={page.allowedHeading} />
         <SeoComparisonTable
           columns={page.allowedColumns}

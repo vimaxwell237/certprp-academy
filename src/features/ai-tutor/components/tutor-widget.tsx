@@ -88,11 +88,11 @@ export function TutorWidget() {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-3 sm:bottom-5 sm:right-5"
+      className="fixed inset-x-3 bottom-3 z-50 flex flex-col items-stretch gap-3 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:items-end"
       data-no-ai-selection="true"
     >
       {isOpen ? (
-        <div className="flex h-[min(44rem,calc(100vh-6rem))] w-[min(36rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur sm:w-[32rem] lg:w-[34rem]">
+        <div className="flex h-[min(42rem,calc(100dvh-5.5rem))] w-full flex-col overflow-hidden rounded-[1.5rem] border border-white/70 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur sm:h-[min(44rem,calc(100dvh-6rem))] sm:w-[min(32rem,calc(100vw-2.5rem))] sm:rounded-[1.75rem] lg:w-[34rem]">
           <div className="border-b border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,145,178,0.92))] px-4 py-3 text-white sm:px-5">
             <div className="flex items-start gap-3">
               <RobotBadge />
@@ -129,7 +129,7 @@ export function TutorWidget() {
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(244,248,251,0.86),rgba(255,255,255,0.98))]">
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4" ref={messageViewportRef}>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3 sm:px-4" ref={messageViewportRef}>
               <TutorMessageList compact messages={messages.slice(-8)} />
               {isPending ? (
                 <div className="mt-3">
@@ -138,7 +138,7 @@ export function TutorWidget() {
               ) : null}
             </div>
 
-            <div className="border-t border-ink/5 bg-white/96 px-3 py-2 sm:px-4">
+            <div className="border-t border-ink/5 bg-white/96 px-2.5 py-2.5 sm:px-4">
               {error ? (
                 <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900">
                   {error}
@@ -176,14 +176,14 @@ export function TutorWidget() {
           </div>
         </div>
       ) : (
-        <div className="rounded-full bg-white/92 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate shadow-soft">
+        <div className="hidden max-w-[16rem] rounded-full bg-white/92 px-4 py-2 text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate shadow-soft sm:block">
           Need networking help?
         </div>
       )}
 
       <button
         aria-label="Toggle AI tutor"
-        className="transition hover:-translate-y-0.5"
+        className="self-end transition hover:-translate-y-0.5"
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >

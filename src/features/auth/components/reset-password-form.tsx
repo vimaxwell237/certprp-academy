@@ -103,12 +103,12 @@ export function ResetPasswordForm() {
   }
 
   return (
-    <Card className="w-full max-w-md border border-white/80 bg-white/95 p-8">
+    <Card className="w-full max-w-md border border-white/80 bg-white/95 p-5 sm:p-8">
       <div className="space-y-2">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan">
           New password
         </p>
-        <h1 className="font-display text-3xl font-bold text-ink">
+        <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">
           Choose a new password
         </h1>
         <p className="text-base text-slate">
@@ -117,7 +117,7 @@ export function ResetPasswordForm() {
         </p>
       </div>
 
-      <form action={handleSubmit} className="mt-8 space-y-5">
+      <form action={handleSubmit} className="mt-6 space-y-5 sm:mt-8">
         <label className="block space-y-2">
           <span className="text-sm font-semibold text-ink">New password</span>
           <input

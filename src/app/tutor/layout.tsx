@@ -16,7 +16,7 @@ export default async function TutorLayout({
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-50">
           Tutor Workspace
         </p>
-        <h1 className="mt-3 font-display text-4xl font-bold tracking-tight">
+        <h1 className="mt-3 font-display text-3xl font-bold tracking-tight sm:text-4xl">
           Scheduling Control Center
         </h1>
         <p className="mt-3 max-w-2xl text-base text-slate-200">

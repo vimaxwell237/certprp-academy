@@ -74,7 +74,7 @@ export default async function SessionsPage({
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan">
               Live Tutor Sessions
             </p>
-            <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+            <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
               Your Session Queue
             </h1>
             <p className="max-w-2xl text-base text-slate">

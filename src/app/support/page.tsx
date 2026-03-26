@@ -28,7 +28,7 @@ export default async function SupportPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan">
             Tutor Support
           </p>
-          <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
             Support Requests
           </h1>
           <p className="max-w-2xl text-base text-slate">
@@ -55,7 +55,7 @@ export default async function SupportPage() {
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan">
               Tutor Support
             </p>
-            <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+            <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
               Support Requests
             </h1>
             <p className="max-w-2xl text-base text-slate">
@@ -151,7 +151,7 @@ export default async function SupportPage() {
 
     return (
       <section className="w-full space-y-6 pb-12">
-        <h1 className="font-display text-4xl font-bold tracking-tight text-ink">
+        <h1 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
           Support Requests
         </h1>
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">

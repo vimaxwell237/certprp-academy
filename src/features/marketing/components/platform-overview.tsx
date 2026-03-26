@@ -28,10 +28,10 @@ export function PlatformOverview() {
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan">
           Why CertPrep Academy
         </p>
-        <h2 className="font-display text-4xl font-bold tracking-tight text-ink">
+        <h2 className="font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">
           A modern CCNA learning platform built for real certification prep.
         </h2>
-        <p className="max-w-2xl text-lg text-slate">
+        <p className="max-w-2xl text-base text-slate sm:text-lg">
           CertPrep Academy combines structured networking lessons with practical CCNA tools
           so learners can move from theory into application without juggling multiple apps.
         </p>
@@ -51,7 +51,7 @@ export function PlatformOverview() {
       <div className="grid gap-4">
         {pillars.map((pillar) => (
           <Card className="border-ink/5" key={pillar.title}>
-            <h3 className="font-display text-2xl font-semibold text-ink">
+            <h3 className="font-display text-xl font-semibold text-ink sm:text-2xl">
               {pillar.title}
             </h3>
             <p className="mt-3 text-base text-slate">{pillar.description}</p>

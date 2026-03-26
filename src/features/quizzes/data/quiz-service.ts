@@ -1,4 +1,5 @@
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/admin";
+import { hasSupabaseServiceRoleEnv } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   calculateQuizScore,
@@ -52,7 +53,7 @@ type RawQuizRow = {
   lesson_id: string | null;
   module: RawModuleRef[] | null;
   lesson: RawLessonRef[] | null;
-  questions: Array<{ id: string }> | null;
+  questions?: Array<{ id: string }> | null;
 };
 
 type RawQuizQuestionPublic = {
@@ -101,6 +102,14 @@ type RawAttemptRow = {
 
 function getSupabaseClient() {
   return createServiceRoleSupabaseClient();
+}
+
+async function getReadSupabaseClient() {
+  if (hasSupabaseServiceRoleEnv()) {
+    return createServiceRoleSupabaseClient();
+  }
+
+  return createServerSupabaseClient();
 }
 
 function relationFirst<T>(value: RelationValue<T> | undefined): T | null {
@@ -195,19 +204,28 @@ async function fetchAttemptRows(
 }
 
 export async function fetchQuizList(userId: string): Promise<QuizListItem[]> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadQuestionCounts = hasSupabaseServiceRoleEnv();
 
   if (!supabase) {
     return [];
   }
 
-  const { data, error } = await supabase
-    .from("quizzes")
-    .select(
-      "id,title,slug,description,module_id,lesson_id,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug,module:modules(id,title,slug,course:courses(title,slug))),questions:quiz_questions(id)"
-    )
-    .eq("is_published", true)
-    .order("created_at", { ascending: true });
+  const { data, error } = canReadQuestionCounts
+    ? await supabase
+        .from("quizzes")
+        .select(
+          "id,title,slug,description,module_id,lesson_id,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug,module:modules(id,title,slug,course:courses(title,slug))),questions:quiz_questions(id)"
+        )
+        .eq("is_published", true)
+        .order("created_at", { ascending: true })
+    : await supabase
+        .from("quizzes")
+        .select(
+          "id,title,slug,description,module_id,lesson_id,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug,module:modules(id,title,slug,course:courses(title,slug)))"
+        )
+        .eq("is_published", true)
+        .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`Failed to fetch quizzes: ${error.message}`);
@@ -587,17 +605,24 @@ export async function fetchModuleQuizIndex(
   userId: string,
   moduleIds: string[]
 ): Promise<Record<string, RelatedQuizSummary>> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadQuestionCounts = hasSupabaseServiceRoleEnv();
 
   if (!supabase || moduleIds.length === 0) {
     return {};
   }
 
-  const { data, error } = await supabase
-    .from("quizzes")
-    .select("id,title,slug,description,module_id,questions:quiz_questions(id)")
-    .in("module_id", moduleIds)
-    .eq("is_published", true);
+  const { data, error } = canReadQuestionCounts
+    ? await supabase
+        .from("quizzes")
+        .select("id,title,slug,description,module_id,questions:quiz_questions(id)")
+        .in("module_id", moduleIds)
+        .eq("is_published", true)
+    : await supabase
+        .from("quizzes")
+        .select("id,title,slug,description,module_id")
+        .in("module_id", moduleIds)
+        .eq("is_published", true);
 
   if (error) {
     throw new Error(`Failed to fetch related quizzes: ${error.message}`);
@@ -644,7 +669,8 @@ export async function fetchRelatedQuizForLessonContext(
   moduleSlug: string,
   lessonSlug: string
 ): Promise<RelatedQuizSummary | null> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
+  const canReadQuestionCounts = hasSupabaseServiceRoleEnv();
 
   if (!supabase) {
     return null;
@@ -690,39 +716,60 @@ export async function fetchRelatedQuizForLessonContext(
     throw new Error(`Failed to resolve lesson quiz lesson: ${lessonError.message}`);
   }
 
-  let quizQuery = supabase
-    .from("quizzes")
-    .select("id,title,slug,description,module_id,lesson_id,questions:quiz_questions(id)")
-    .eq("is_published", true);
-
   if (lessonData?.id) {
-    const { data: lessonQuizData } = await quizQuery
-      .eq("lesson_id", lessonData.id as string)
-      .maybeSingle();
+    const { data: lessonQuizData } = canReadQuestionCounts
+      ? await supabase
+          .from("quizzes")
+          .select(
+            "id,title,slug,description,module_id,lesson_id,questions:quiz_questions(id)"
+          )
+          .eq("is_published", true)
+          .eq("lesson_id", lessonData.id as string)
+          .maybeSingle()
+      : await supabase
+          .from("quizzes")
+          .select("id,title,slug,description,module_id,lesson_id")
+          .eq("is_published", true)
+          .eq("lesson_id", lessonData.id as string)
+          .maybeSingle();
 
     if (lessonQuizData) {
-      const attempts = await fetchAttemptRows(userId, [lessonQuizData.id as string], supabase);
-      const metrics = buildQuizAttemptMetrics(lessonQuizData.id as string, attempts);
+      const resolvedLessonQuiz = lessonQuizData as {
+        id: string;
+        title: string;
+        slug: string;
+        description: string;
+        questions?: Array<{ id: string }> | null;
+      };
+      const attempts = await fetchAttemptRows(userId, [resolvedLessonQuiz.id], supabase);
+      const metrics = buildQuizAttemptMetrics(resolvedLessonQuiz.id, attempts);
 
       return {
-        id: lessonQuizData.id as string,
-        title: lessonQuizData.title as string,
-        slug: lessonQuizData.slug as string,
-        description: lessonQuizData.description as string,
+        id: resolvedLessonQuiz.id,
+        title: resolvedLessonQuiz.title,
+        slug: resolvedLessonQuiz.slug,
+        description: resolvedLessonQuiz.description,
         questionCount:
-          ((lessonQuizData.questions as Array<{ id: string }> | null) ?? []).length,
+          (resolvedLessonQuiz.questions ?? []).length,
         attemptsTaken: metrics.attemptsTaken,
         latestScore: metrics.latestScore
       };
     }
   }
 
-  const { data: moduleQuizData, error: moduleQuizError } = await supabase
-    .from("quizzes")
-    .select("id,title,slug,description,module_id,questions:quiz_questions(id)")
-    .eq("module_id", moduleData.id as string)
-    .eq("is_published", true)
-    .maybeSingle();
+  const { data: moduleQuizData, error: moduleQuizError } = canReadQuestionCounts
+    ? await supabase
+        .from("quizzes")
+        .select("id,title,slug,description,module_id,questions:quiz_questions(id)")
+        .eq("module_id", moduleData.id as string)
+        .eq("is_published", true)
+        .maybeSingle()
+    : await supabase
+        .from("quizzes")
+        .select("id,title,slug,description,module_id")
+        .eq("module_id", moduleData.id as string)
+        .eq("is_published", true)
+        .maybeSingle();
 
   if (moduleQuizError) {
     throw new Error(`Failed to fetch related module quiz: ${moduleQuizError.message}`);
@@ -732,16 +779,22 @@ export async function fetchRelatedQuizForLessonContext(
     return null;
   }
 
-  const attempts = await fetchAttemptRows(userId, [moduleQuizData.id as string], supabase);
-  const metrics = buildQuizAttemptMetrics(moduleQuizData.id as string, attempts);
+  const resolvedModuleQuiz = moduleQuizData as {
+    id: string;
+    title: string;
+    slug: string;
+    description: string;
+    questions?: Array<{ id: string }> | null;
+  };
+  const attempts = await fetchAttemptRows(userId, [resolvedModuleQuiz.id], supabase);
+  const metrics = buildQuizAttemptMetrics(resolvedModuleQuiz.id, attempts);
 
   return {
-    id: moduleQuizData.id as string,
-    title: moduleQuizData.title as string,
-    slug: moduleQuizData.slug as string,
-    description: moduleQuizData.description as string,
-    questionCount:
-      ((moduleQuizData.questions as Array<{ id: string }> | null) ?? []).length,
+    id: resolvedModuleQuiz.id,
+    title: resolvedModuleQuiz.title,
+    slug: resolvedModuleQuiz.slug,
+    description: resolvedModuleQuiz.description,
+    questionCount: (resolvedModuleQuiz.questions ?? []).length,
     attemptsTaken: metrics.attemptsTaken,
     latestScore: metrics.latestScore
   };

@@ -119,15 +119,15 @@ export function DashboardShell({
   const showTechnicalErrorCards = false;
 
   return (
-    <section className="space-y-10">
-      <div className="rounded-[2rem] border border-white/70 bg-[linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(8,145,178,0.9))] px-6 py-10 text-white shadow-soft lg:px-10">
+    <section className="space-y-8 sm:space-y-10">
+      <div className="rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(8,145,178,0.9))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-50">
           Dashboard
         </p>
-        <h1 className="mt-3 font-display text-4xl font-bold tracking-tight">
+        <h1 className="mt-3 font-display text-3xl font-bold tracking-tight sm:text-4xl">
           Welcome back
         </h1>
-        <p className="mt-3 max-w-2xl text-lg text-slate-200">
+        <p className="mt-3 max-w-2xl text-base text-slate-200 sm:text-lg">
           Signed in as <span className="font-semibold text-white">{user.email}</span>.
           Your CCNA learning progress and course activity are now tracked here.
         </p>
