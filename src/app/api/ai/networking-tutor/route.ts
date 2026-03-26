@@ -202,15 +202,35 @@ function getProviderRequestErrorMessage(providerLabel: string, error: unknown) {
   return error instanceof Error ? error.message : `${providerLabel} is temporarily unavailable.`;
 }
 
-function buildDevFallbackPayload(input: {
+function buildFallbackPayload(input: {
   question: string;
   lessonContext?: string | null;
   providerLabel: string;
+  reason: "rate_limited" | "temporarily_unavailable";
 }) {
+  const persistenceWarning =
+    input.reason === "rate_limited"
+      ? `${input.providerLabel} is rate-limited right now, so the AI tutor is using a built-in backup response.`
+      : `${input.providerLabel} is temporarily unavailable, so the AI tutor is using a built-in backup response.`;
+
   return {
     answer: buildTutorFallbackResponse(input),
-    persistenceWarning: `${input.providerLabel} is rate-limited right now, so the AI tutor is using a built-in development fallback response.`
+    persistenceWarning
   };
+}
+
+function isTemporarilyUnavailableFailure(failure: TutorProviderFailure) {
+  const normalizedMessage = failure.message.toLowerCase();
+
+  return (
+    failure.rateLimited ||
+    failure.status >= 500 ||
+    normalizedMessage.includes("temporarily unavailable") ||
+    normalizedMessage.includes("timed out") ||
+    normalizedMessage.includes("timeout") ||
+    normalizedMessage.includes("server had an error") ||
+    normalizedMessage.includes("internal server error")
+  );
 }
 
 async function requestGitHubModelsTutorResponse(input: {
@@ -494,13 +514,26 @@ export async function POST(request: NextRequest) {
     if (!answer) {
       const lastFailure = failures.at(-1);
       const rateLimitedFailure = failures.find((failure) => failure.rateLimited);
+      const transientFailure = failures.find(isTemporarilyUnavailableFailure);
 
-      if (process.env.NODE_ENV !== "production" && rateLimitedFailure) {
+      if (rateLimitedFailure) {
         return jsonNoStore(
-          buildDevFallbackPayload({
+          buildFallbackPayload({
             question,
             lessonContext,
-            providerLabel: rateLimitedFailure.providerLabel
+            providerLabel: rateLimitedFailure.providerLabel,
+            reason: "rate_limited"
+          })
+        );
+      }
+
+      if (transientFailure) {
+        return jsonNoStore(
+          buildFallbackPayload({
+            question,
+            lessonContext,
+            providerLabel: transientFailure.providerLabel,
+            reason: "temporarily_unavailable"
           })
         );
       }
