@@ -53,13 +53,28 @@ function isStepLine(line: string) {
 }
 
 export function formatTutorResponse(content: string): TutorResponseSection[] {
-  const lines = content
+  const rawLines = content
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
-  if (lines.length === 0) {
+  if (rawLines.length === 0) {
     return [];
+  }
+
+  const lines: string[] = [];
+
+  for (let index = 0; index < rawLines.length; index += 1) {
+    const currentLine = rawLines[index];
+    const nextLine = rawLines[index + 1];
+
+    if (/^\d+$/.test(currentLine) && nextLine) {
+      lines.push(`${currentLine}. ${nextLine}`);
+      index += 1;
+      continue;
+    }
+
+    lines.push(currentLine);
   }
 
   const sections: TutorResponseSection[] = [];

@@ -1,5 +1,19 @@
 import { formatTutorResponse } from "@/features/ai-tutor/lib/format-response";
 
+function renderInlineMarkdown(value: string) {
+  const segments = value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+
+  return segments.map((segment, index) =>
+    segment.startsWith("**") && segment.endsWith("**") ? (
+      <strong className="font-semibold text-ink" key={`${segment}-${index}`}>
+        {segment.slice(2, -2)}
+      </strong>
+    ) : (
+      <span key={`${segment}-${index}`}>{segment}</span>
+    )
+  );
+}
+
 function getSectionPresentation(title: string) {
   const normalized = title.toLowerCase();
 
@@ -89,7 +103,7 @@ export function TutorFormattedResponse({
                         className={`${compact ? "text-[13px] leading-6" : "text-sm leading-7"} text-ink`}
                         key={`${section.title}-paragraph-${blockIndex}`}
                       >
-                        {block.text}
+                        {renderInlineMarkdown(block.text)}
                       </p>
                     );
                   }
@@ -106,7 +120,7 @@ export function TutorFormattedResponse({
                             <span
                               className={`${compact ? "text-[13px] leading-6" : "text-sm leading-7"} text-ink`}
                             >
-                              {item}
+                              {renderInlineMarkdown(item)}
                             </span>
                           </li>
                         ))}
@@ -131,7 +145,7 @@ export function TutorFormattedResponse({
                           <span
                             className={`${compact ? "text-[13px] leading-6" : "text-sm leading-7"} text-ink`}
                           >
-                            {item}
+                            {renderInlineMarkdown(item)}
                           </span>
                         </li>
                       ))}
