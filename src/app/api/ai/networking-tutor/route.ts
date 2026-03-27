@@ -37,6 +37,19 @@ type OpenAiResponsesApiResponse = {
   };
 };
 
+type GeminiGenerateContentResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
+};
+
 type GitHubModelsChatCompletionsResponse = {
   choices?: Array<{
     message?: {
@@ -149,6 +162,15 @@ function extractGitHubModelsText(payload: GitHubModelsChatCompletionsResponse) {
   return "";
 }
 
+function extractGeminiText(payload: GeminiGenerateContentResponse) {
+  const parts =
+    payload.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text?.trim() ?? "")
+      .filter(Boolean) ?? [];
+
+  return parts.join("\n\n").trim();
+}
+
 async function getAuthenticatedUserId() {
   const supabase = await createServerSupabaseClient();
 
@@ -193,6 +215,13 @@ function getOpenAiDebugContext() {
   return {
     model: process.env.OPENAI_TUTOR_MODEL ?? "gpt-5-mini",
     tokenSource: process.env.OPENAI_API_KEY ? "OPENAI_API_KEY" : "none"
+  };
+}
+
+function getGeminiDebugContext() {
+  return {
+    model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
+    tokenSource: process.env.GEMINI_API_KEY ? "GEMINI_API_KEY" : "none"
   };
 }
 
@@ -241,7 +270,9 @@ function buildProviderDebugSummary(failures: TutorProviderFailure[]) {
       const context =
         failure.providerLabel === "GitHub Models"
           ? getGitHubModelsDebugContext()
-          : getOpenAiDebugContext();
+          : failure.providerLabel === "Gemini"
+            ? getGeminiDebugContext()
+            : getOpenAiDebugContext();
 
       return `${failure.providerLabel} status=${failure.status} rateLimited=${failure.rateLimited} model=${failure.model ?? context.model} tokenSource=${context.tokenSource} message="${failure.message}"`;
     })
@@ -284,10 +315,16 @@ function buildFallbackPayload(input: {
     process.env.NODE_ENV !== "production"
       ? buildProviderDebugSummary(input.failures) ?? undefined
       : undefined;
+  const troubleshootingHint =
+    input.providerLabel === "Gemini"
+      ? "If this keeps happening, verify your Gemini API key and model settings, then restart or redeploy the app."
+      : input.providerLabel === "GitHub Models"
+        ? "If this keeps happening while the playground works, verify your deployed GitHub Models token and model settings, then redeploy."
+        : "If this keeps happening, verify your AI provider key and model settings, then restart or redeploy the app.";
   const persistenceWarning =
     input.reason === "rate_limited"
       ? `${input.providerLabel} is rate-limited right now, so the AI tutor is using a built-in backup response.`
-      : `${input.providerLabel} could not return a live answer, so the AI tutor switched to a built-in backup response. If this keeps happening while the playground works, verify your deployed GitHub Models token and model settings, then redeploy.`;
+      : `${input.providerLabel} could not return a live answer, so the AI tutor switched to a built-in backup response. ${troubleshootingHint}`;
 
   return {
     answer: buildTutorFallbackResponse(input),
@@ -401,6 +438,105 @@ async function requestGitHubModelsTutorResponse(input: {
   }
 }
 
+async function requestGeminiTutorResponse(input: {
+  geminiApiKey: string;
+  lessonContext?: string | null;
+  model: string;
+  question: string;
+}): Promise<TutorProviderResult> {
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.model)}:generateContent`,
+      {
+        cache: "no-store",
+        method: "POST",
+        signal: AbortSignal.timeout(AI_TUTOR_PROVIDER_TIMEOUT_MS),
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": input.geminiApiKey
+        },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [
+              {
+                text: NETWORKING_TUTOR_SYSTEM_PROMPT
+              }
+            ]
+          },
+          contents: [
+            {
+              parts: [
+                {
+                  text: buildTutorUserPrompt({
+                    question: input.question,
+                    lessonContext: input.lessonContext
+                  })
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            maxOutputTokens: AI_TUTOR_MAX_OUTPUT_TOKENS,
+            temperature: 0.3
+          }
+        })
+      }
+    );
+
+    const { json: payload, text } =
+      await readJsonOrTextResponse<GeminiGenerateContentResponse>(response);
+
+    if (!response.ok) {
+      const message = payload?.error?.message || text || "Gemini could not generate a response.";
+
+      return {
+        failure: {
+          message,
+          model: input.model,
+          providerLabel: "Gemini",
+          rateLimited: isRateLimited(response.status, message),
+          status: response.status
+        },
+        ok: false
+      };
+    }
+
+    const answer = (payload ? extractGeminiText(payload) : text).trim();
+
+    if (!answer) {
+      return {
+        failure: {
+          message: "Gemini returned an empty response.",
+          model: input.model,
+          providerLabel: "Gemini",
+          rateLimited: false,
+          status: 502
+        },
+        ok: false
+      };
+    }
+
+    return {
+      ok: true,
+      value: {
+        answer,
+        providerLabel: "Gemini"
+      }
+    };
+  } catch (error) {
+    return {
+      failure: {
+        message: getProviderRequestErrorMessage("Gemini", error),
+        model: input.model,
+        providerLabel: "Gemini",
+        rateLimited: false,
+        status: 503
+      },
+      ok: false
+    };
+  }
+}
+
 async function requestOpenAiTutorResponse(input: {
   lessonContext?: string | null;
   model: string;
@@ -487,15 +623,16 @@ export async function POST(request: NextRequest) {
     return jsonNoStore({ error: "Cross-site requests are not allowed." }, 403);
   }
 
+  const geminiApiKey = process.env.GEMINI_API_KEY;
   const githubModelsToken = process.env.GITHUB_MODELS_TOKEN;
   const githubToken = githubModelsToken ?? process.env.GITHUB_TOKEN;
   const openAiApiKey = process.env.OPENAI_API_KEY;
 
-  if (!githubToken && !openAiApiKey) {
+  if (!geminiApiKey && !githubToken && !openAiApiKey) {
     return jsonNoStore(
       {
         error:
-          "No AI provider key is configured. Set GITHUB_MODELS_TOKEN for GitHub Models or OPENAI_API_KEY for OpenAI."
+          "No AI provider key is configured. Set GEMINI_API_KEY, GITHUB_MODELS_TOKEN, or OPENAI_API_KEY."
       },
       503
     );
@@ -563,8 +700,27 @@ export async function POST(request: NextRequest) {
     let answer = "";
     const failures: TutorProviderFailure[] = [];
 
+    if (geminiApiKey) {
+      const result = await requestGeminiTutorResponse({
+        geminiApiKey,
+        model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
+        question,
+        lessonContext
+      });
+
+      if (result.ok) {
+        answer = result.value.answer;
+      } else {
+        failures.push(result.failure);
+      }
+    }
+
     if (githubToken) {
       for (const model of getGitHubModelsToTry()) {
+        if (answer) {
+          break;
+        }
+
         for (let attempt = 1; attempt <= AI_TUTOR_GITHUB_RETRY_ATTEMPTS; attempt += 1) {
           const result = await requestGitHubModelsTutorResponse({
             githubToken,
