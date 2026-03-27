@@ -1,6 +1,16 @@
+export type TutorResponseBlock =
+  | {
+      text: string;
+      type: "paragraph";
+    }
+  | {
+      items: string[];
+      type: "bullet-list" | "step-list";
+    };
+
 export type TutorResponseSection = {
+  blocks: TutorResponseBlock[];
   title: string;
-  body: string[];
 };
 
 const HEADING_PATTERNS = [
@@ -30,6 +40,18 @@ function cleanBullet(line: string) {
   return line.replace(/^[-*]\s*/, "").trim();
 }
 
+function cleanStep(line: string) {
+  return line.replace(/^\d+[\.\)]\s*/, "").trim();
+}
+
+function isBulletLine(line: string) {
+  return /^[-*]\s+/.test(line);
+}
+
+function isStepLine(line: string) {
+  return /^\d+[\.\)]\s+/.test(line);
+}
+
 export function formatTutorResponse(content: string): TutorResponseSection[] {
   const lines = content
     .split(/\r?\n/)
@@ -46,8 +68,8 @@ export function formatTutorResponse(content: string): TutorResponseSection[] {
   for (const line of lines) {
     if (isHeading(line)) {
       current = {
-        title: normalizeHeading(line),
-        body: []
+        blocks: [],
+        title: normalizeHeading(line)
       };
       sections.push(current);
       continue;
@@ -55,14 +77,49 @@ export function formatTutorResponse(content: string): TutorResponseSection[] {
 
     if (!current) {
       current = {
-        title: "Answer",
-        body: []
+        blocks: [],
+        title: "Answer"
       };
       sections.push(current);
     }
 
-    current.body.push(cleanBullet(line));
+    const lastBlock = current.blocks.at(-1);
+
+    if (isStepLine(line)) {
+      const item = cleanStep(line);
+
+      if (lastBlock?.type === "step-list") {
+        lastBlock.items.push(item);
+      } else {
+        current.blocks.push({
+          items: [item],
+          type: "step-list"
+        });
+      }
+
+      continue;
+    }
+
+    if (isBulletLine(line)) {
+      const item = cleanBullet(line);
+
+      if (lastBlock?.type === "bullet-list") {
+        lastBlock.items.push(item);
+      } else {
+        current.blocks.push({
+          items: [item],
+          type: "bullet-list"
+        });
+      }
+
+      continue;
+    }
+
+    current.blocks.push({
+      text: cleanBullet(line),
+      type: "paragraph"
+    });
   }
 
-  return sections.filter((section) => section.body.length > 0);
+  return sections.filter((section) => section.blocks.length > 0);
 }
