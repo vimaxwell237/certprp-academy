@@ -1,5 +1,12 @@
 import type { MetadataRoute } from "next";
 
+import { ccnaAuthorityPages } from "@/features/marketing/lib/ccna-authority-pages";
+import { ccnaCommercialComparisonPages } from "@/features/marketing/lib/ccna-commercial-comparison-pages";
+import { ccnaCommercialPages } from "@/features/marketing/lib/ccna-commercial-pages";
+import { ccnaLabClusterPages } from "@/features/marketing/lib/ccna-lab-cluster-pages";
+import { ccnaPracticeClusterPages } from "@/features/marketing/lib/ccna-practice-cluster-pages";
+import { ccnaTrustPages } from "@/features/marketing/lib/ccna-trust-pages";
+import { marketingTopicPages } from "@/features/marketing/lib/seo-topics";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 
 type SitemapEntry = {
@@ -8,217 +15,88 @@ type SitemapEntry = {
   priority: number;
 };
 
-export const INDEXABLE_MARKETING_PAGES: SitemapEntry[] = [
-  {
-    path: APP_ROUTES.home,
-    changeFrequency: "weekly",
-    priority: 1
-  },
-  {
-    path: APP_ROUTES.pricing,
-    changeFrequency: "weekly",
-    priority: 0.8
-  },
-  {
-    path: APP_ROUTES.ccnaCourseSubscription,
-    changeFrequency: "weekly",
-    priority: 0.78
-  },
-  {
-    path: APP_ROUTES.ccnaPracticeTestSubscription,
-    changeFrequency: "weekly",
-    priority: 0.78
-  },
-  {
-    path: APP_ROUTES.ccnaCourseFreeTrial,
-    changeFrequency: "weekly",
-    priority: 0.78
-  },
-  {
-    path: APP_ROUTES.ccnaCourseWithPracticeTests,
-    changeFrequency: "weekly",
-    priority: 0.78
-  },
-  {
-    path: APP_ROUTES.ccnaLabSubscription,
-    changeFrequency: "weekly",
-    priority: 0.78
-  },
-  {
-    path: APP_ROUTES.ccnaPracticeQuestionsNotExamDump,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.ccnaPastQuestionsEthicalAlternative,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.whatIsAllowedForCcnaPractice,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.bosonExsimCcnaReview,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.measureupCcnaPracticeTestReview,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.bosonVsMeasureupCcna,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.bestWebsiteForCcnaPractice,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.bestCcnaLabs,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.bestCcnaPracticeTests,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.ccnaTimedPracticeTest,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.ccnaMockExam200301,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.ccnaQuestionBankWithExplanations,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.ccnaPracticeTestFreeVsPaid,
-    changeFrequency: "weekly",
-    priority: 0.77
-  },
-  {
-    path: APP_ROUTES.ccnaLabsWithAnswers,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaLabsForBeginners,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaPacketTracerLabsDownload,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaExamTopicsExplained,
-    changeFrequency: "weekly",
-    priority: 0.8
-  },
-  {
-    path: APP_ROUTES.ccnaNetworkFundamentals,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaNetworkAccess,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaIpConnectivity,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaIpServices,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaSecurityFundamentals,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaAutomationAndProgrammability,
-    changeFrequency: "weekly",
-    priority: 0.76
-  },
-  {
-    path: APP_ROUTES.ccnaSubnettingPractice,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaLabs,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaVlanLab,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaTrunkingExplained,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaOspfSingleAreaExplained,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaAclExplained,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaNatExplained,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaSshConfiguration,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaPortSecurityConfiguration,
-    changeFrequency: "weekly",
-    priority: 0.75
-  },
-  {
-    path: APP_ROUTES.ccnaPracticeExams,
-    changeFrequency: "weekly",
-    priority: 0.75
-  }
-];
+const PRIORITY_BY_GROUP = {
+  home: 1,
+  pricing: 0.85,
+  authority: 0.8,
+  topic: 0.78,
+  commercial: 0.78,
+  practice: 0.77,
+  labs: 0.76,
+  trust: 0.76,
+  comparison: 0.75
+} as const;
 
-export const ROBOT_ALLOW_PATHS = INDEXABLE_MARKETING_PAGES.map((page) => page.path);
+const CHANGE_FREQUENCY_BY_GROUP = {
+  home: "weekly",
+  pricing: "weekly",
+  authority: "weekly",
+  topic: "weekly",
+  commercial: "weekly",
+  practice: "weekly",
+  labs: "weekly",
+  trust: "monthly",
+  comparison: "monthly"
+} as const satisfies Record<
+  keyof typeof PRIORITY_BY_GROUP,
+  MetadataRoute.Sitemap[number]["changeFrequency"]
+>;
+
+function createSitemapEntry(
+  path: string,
+  group: keyof typeof PRIORITY_BY_GROUP
+): SitemapEntry {
+  return {
+    path,
+    changeFrequency: CHANGE_FREQUENCY_BY_GROUP[group],
+    priority: PRIORITY_BY_GROUP[group]
+  };
+}
+
+function buildIndexableMarketingPages() {
+  const pages = new Map<string, SitemapEntry>();
+
+  const addPages = (
+    paths: string[],
+    group: keyof typeof PRIORITY_BY_GROUP
+  ) => {
+    paths.forEach((path) => {
+      if (pages.has(path)) {
+        return;
+      }
+
+      pages.set(path, createSitemapEntry(path, group));
+    });
+  };
+
+  addPages([APP_ROUTES.home], "home");
+  addPages([APP_ROUTES.pricing], "pricing");
+  addPages(ccnaAuthorityPages.map((page) => page.route), "authority");
+  addPages(marketingTopicPages.map((page) => page.route), "topic");
+  addPages(ccnaCommercialPages.map((page) => page.route), "commercial");
+  addPages(ccnaPracticeClusterPages.map((page) => page.route), "practice");
+  addPages(ccnaLabClusterPages.map((page) => page.route), "labs");
+  addPages(ccnaTrustPages.map((page) => page.route), "trust");
+  addPages(
+    ccnaCommercialComparisonPages.map((page) => page.route),
+    "comparison"
+  );
+
+  return Array.from(pages.values());
+}
+
+export const INDEXABLE_MARKETING_PAGES = buildIndexableMarketingPages();
+
+export const ROBOT_ALLOW_PATHS = ["/"];
 
 export const ROBOT_DISALLOW_PATHS: string[] = [
   "/admin",
   "/api",
+  "/auth",
   APP_ROUTES.aiTutor,
   APP_ROUTES.billing,
   APP_ROUTES.bookSession,
+  "/checkout",
   APP_ROUTES.checkoutCancel,
   APP_ROUTES.checkoutSuccess,
   APP_ROUTES.cliPractice,
@@ -232,6 +110,7 @@ export const ROBOT_DISALLOW_PATHS: string[] = [
   APP_ROUTES.quizzes,
   APP_ROUTES.recommendations,
   APP_ROUTES.sessions,
+  "/settings",
   APP_ROUTES.signup,
   APP_ROUTES.studyPlan,
   APP_ROUTES.subnettingPractice,

@@ -2,10 +2,14 @@ import type { Metadata } from "next";
 import { Space_Grotesk, Source_Sans_3 } from "next/font/google";
 import Script from "next/script";
 
+import { JsonLd } from "@/components/seo/json-ld";
 import { LayoutChrome } from "@/components/layout/layout-chrome";
 import {
-  buildSiteMetadata
+  buildSiteMetadata,
+  SITE_DESCRIPTION,
+  SITE_NAME
 } from "@/lib/seo/metadata";
+import { getCanonicalSiteUrl } from "@/lib/seo/site-url";
 
 import "./globals.css";
 
@@ -26,11 +30,30 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const canonicalSiteUrl = getCanonicalSiteUrl();
   const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID;
+  const structuredData = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: SITE_NAME,
+      url: canonicalSiteUrl,
+      description: SITE_DESCRIPTION
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: SITE_NAME,
+      url: canonicalSiteUrl,
+      description: SITE_DESCRIPTION,
+      inLanguage: "en-US"
+    }
+  ];
 
   return (
     <html className={`${spaceGrotesk.variable} ${sourceSans.variable}`} lang="en">
       <body className="font-body text-base text-ink antialiased">
+        <JsonLd data={structuredData} />
         <div className="relative min-h-screen overflow-hidden">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-[32rem] bg-[radial-gradient(circle_at_top_left,_rgba(8,145,178,0.2),_transparent_45%)]" />
           <div className="pointer-events-none absolute inset-0 bg-grid-fade bg-[length:48px_48px] opacity-[0.03]" />

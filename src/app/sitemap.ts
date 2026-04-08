@@ -1,8 +1,8 @@
 import type { MetadataRoute } from "next"
 
-import { buildAppUrl } from "@/lib/app-url"
 import { isSearchIndexingEnabled } from "@/lib/seo/metadata"
 import { INDEXABLE_MARKETING_PAGES } from "@/lib/seo/routes"
+import { buildCanonicalUrl } from "@/lib/seo/site-url"
 
 export default function sitemap(): MetadataRoute.Sitemap {
   if (!isSearchIndexingEnabled()) {
@@ -12,7 +12,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date()
 
   return INDEXABLE_MARKETING_PAGES.map((page) => ({
-    url: buildAppUrl(page.path),
+    url: buildCanonicalUrl(page.path),
     lastModified: now,
     changeFrequency: page.changeFrequency,
     priority: page.priority

@@ -15,8 +15,8 @@ import type {
   CcnaCommercialComparisonPageContent
 } from "@/features/marketing/lib/ccna-commercial-comparison-pages";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
 import { SITE_NAME } from "@/lib/seo/metadata";
+import { buildCanonicalUrl } from "@/lib/seo/site-url";
 
 interface CcnaCommercialComparisonPageProps {
   page: CcnaCommercialComparisonPageContent;
@@ -45,12 +45,12 @@ export function CcnaCommercialComparisonPage({
       "@type": "WebPage",
       name: page.metaTitle,
       description: page.metaDescription,
-      url: buildAppUrl(page.route),
+      url: buildCanonicalUrl(page.route),
       about: page.primaryKeyword,
       isPartOf: {
         "@type": "WebSite",
         name: SITE_NAME,
-        url: buildAppUrl(APP_ROUTES.home)
+        url: buildCanonicalUrl(APP_ROUTES.home)
       }
     },
     {
@@ -72,7 +72,7 @@ export function CcnaCommercialComparisonPage({
         "@type": "ListItem",
         position: index + 1,
         name: item.title,
-        item: buildAppUrl(item.route)
+        item: buildCanonicalUrl(item.route)
       }))
     }
   ];

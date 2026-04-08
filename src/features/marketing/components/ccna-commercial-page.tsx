@@ -12,8 +12,8 @@ import {
 } from "@/features/marketing/components/ccna-seo-shared";
 import type { CcnaCommercialPageContent } from "@/features/marketing/lib/ccna-commercial-pages";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
 import { SITE_NAME } from "@/lib/seo/metadata";
+import { buildCanonicalUrl } from "@/lib/seo/site-url";
 
 interface CcnaCommercialPageProps {
   page: CcnaCommercialPageContent;
@@ -34,9 +34,9 @@ function buildBreadcrumbs(page: CcnaCommercialPageContent) {
 
 export function CcnaCommercialPage({ page }: CcnaCommercialPageProps) {
   const breadcrumbs = buildBreadcrumbs(page);
-  const siteUrl = buildAppUrl(APP_ROUTES.home);
-  const pageUrl = buildAppUrl(page.route);
-  const primaryCtaUrl = buildAppUrl(page.primaryCtaHref);
+  const siteUrl = buildCanonicalUrl(APP_ROUTES.home);
+  const pageUrl = buildCanonicalUrl(page.route);
+  const primaryCtaUrl = buildCanonicalUrl(page.primaryCtaHref);
   const schema =
     page.schemaType === "Course"
       ? {
@@ -108,7 +108,7 @@ export function CcnaCommercialPage({ page }: CcnaCommercialPageProps) {
         "@type": "ListItem",
         position: index + 1,
         name: item.title,
-        item: buildAppUrl(item.route)
+        item: buildCanonicalUrl(item.route)
       }))
     }
   ];

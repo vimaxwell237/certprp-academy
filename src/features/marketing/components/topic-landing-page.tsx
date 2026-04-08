@@ -12,8 +12,8 @@ import {
 } from "@/features/marketing/components/ccna-seo-shared";
 import type { MarketingLandingPageContent } from "@/features/marketing/lib/seo-topics";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
 import { SITE_NAME } from "@/lib/seo/metadata";
+import { buildCanonicalUrl } from "@/lib/seo/site-url";
 
 interface TopicLandingPageProps {
   page: MarketingLandingPageContent;
@@ -31,12 +31,12 @@ export function TopicLandingPage({ page, relatedPages }: TopicLandingPageProps) 
       "@type": "WebPage",
       name: page.metaTitle,
       description: page.metaDescription,
-      url: buildAppUrl(page.route),
+      url: buildCanonicalUrl(page.route),
       about: page.primaryKeyword,
       isPartOf: {
         "@type": "WebSite",
         name: SITE_NAME,
-        url: buildAppUrl(APP_ROUTES.home)
+        url: buildCanonicalUrl(APP_ROUTES.home)
       }
     },
     {
@@ -59,13 +59,13 @@ export function TopicLandingPage({ page, relatedPages }: TopicLandingPageProps) 
           "@type": "ListItem",
           position: 1,
           name: "Home",
-          item: buildAppUrl(APP_ROUTES.home)
+          item: buildCanonicalUrl(APP_ROUTES.home)
         },
         {
           "@type": "ListItem",
           position: 2,
           name: page.title,
-          item: buildAppUrl(page.route)
+          item: buildCanonicalUrl(page.route)
         }
       ]
     }

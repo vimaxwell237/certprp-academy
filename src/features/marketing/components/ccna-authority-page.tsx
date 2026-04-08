@@ -15,8 +15,8 @@ import type {
   CcnaAuthorityPageContent
 } from "@/features/marketing/lib/ccna-authority-pages";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
 import { SITE_NAME } from "@/lib/seo/metadata";
+import { buildCanonicalUrl } from "@/lib/seo/site-url";
 
 interface CcnaAuthorityPageProps {
   page: CcnaAuthorityPageContent;
@@ -50,8 +50,8 @@ function buildBreadcrumbs(page: CcnaAuthorityPageContent) {
 
 export function CcnaAuthorityPage({ page }: CcnaAuthorityPageProps) {
   const breadcrumbs = buildBreadcrumbs(page);
-  const siteUrl = buildAppUrl(APP_ROUTES.home);
-  const pageUrl = buildAppUrl(page.route);
+  const siteUrl = buildCanonicalUrl(APP_ROUTES.home);
+  const pageUrl = buildCanonicalUrl(page.route);
   const structuredData = [
     {
       "@context": "https://schema.org",
@@ -78,7 +78,7 @@ export function CcnaAuthorityPage({ page }: CcnaAuthorityPageProps) {
       hasPart: page.relatedLinks.map((link) => ({
         "@type": "WebPage",
         name: link.title,
-        url: buildAppUrl(link.route)
+        url: buildCanonicalUrl(link.route)
       }))
     },
     {
@@ -88,7 +88,7 @@ export function CcnaAuthorityPage({ page }: CcnaAuthorityPageProps) {
         "@type": "ListItem",
         position: index + 1,
         name: breadcrumb.title,
-        item: buildAppUrl(breadcrumb.route)
+        item: buildCanonicalUrl(breadcrumb.route)
       }))
     }
   ];

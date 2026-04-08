@@ -5,6 +5,21 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: path.join(__dirname),
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [
+          {
+            type: "host",
+            value: "certprep.it.com"
+          }
+        ],
+        destination: "https://www.certprep.it.com/:path*",
+        permanent: true
+      }
+    ];
+  },
   async headers() {
     const contentSecurityPolicy = [
       "default-src 'self'",

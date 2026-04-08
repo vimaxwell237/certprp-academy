@@ -12,8 +12,8 @@ import {
 } from "@/features/marketing/components/ccna-seo-shared";
 import type { CcnaLabClusterPageContent } from "@/features/marketing/lib/ccna-lab-cluster-pages";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
 import { SITE_NAME } from "@/lib/seo/metadata";
+import { buildCanonicalUrl } from "@/lib/seo/site-url";
 
 interface CcnaLabClusterPageProps {
   page: CcnaLabClusterPageContent;
@@ -40,12 +40,12 @@ export function CcnaLabClusterPage({ page }: CcnaLabClusterPageProps) {
       "@type": "WebPage",
       name: page.metaTitle,
       description: page.metaDescription,
-      url: buildAppUrl(page.route),
+      url: buildCanonicalUrl(page.route),
       about: page.primaryKeyword,
       isPartOf: {
         "@type": "WebSite",
         name: SITE_NAME,
-        url: buildAppUrl(APP_ROUTES.home)
+        url: buildCanonicalUrl(APP_ROUTES.home)
       }
     },
     {
@@ -80,7 +80,7 @@ export function CcnaLabClusterPage({ page }: CcnaLabClusterPageProps) {
         "@type": "ListItem",
         position: index + 1,
         name: item.title,
-        item: buildAppUrl(item.route)
+        item: buildCanonicalUrl(item.route)
       }))
     }
   ];

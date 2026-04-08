@@ -1,11 +1,11 @@
 import type { MetadataRoute } from "next"
 
-import { getAppBaseUrl } from "@/lib/app-url"
 import { isSearchIndexingEnabled } from "@/lib/seo/metadata"
 import { ROBOT_ALLOW_PATHS, ROBOT_DISALLOW_PATHS } from "@/lib/seo/routes"
+import { getCanonicalSiteUrl } from "@/lib/seo/site-url"
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = getAppBaseUrl()
+  const baseUrl = getCanonicalSiteUrl()
 
   if (!isSearchIndexingEnabled()) {
     return {
@@ -20,13 +20,13 @@ export default function robots(): MetadataRoute.Robots {
   }
 
   return {
-      rules: [
-        {
-          userAgent: "*",
-          allow: ROBOT_ALLOW_PATHS,
-          disallow: ROBOT_DISALLOW_PATHS
-        }
-      ],
+    rules: [
+      {
+        userAgent: "*",
+        allow: ROBOT_ALLOW_PATHS,
+        disallow: ROBOT_DISALLOW_PATHS
+      }
+    ],
     sitemap: `${baseUrl}/sitemap.xml`,
     host: baseUrl
   }

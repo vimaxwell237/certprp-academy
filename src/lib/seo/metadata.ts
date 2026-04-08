@@ -1,6 +1,10 @@
 import type { Metadata } from "next"
 
-import { buildAppUrl, getAppBaseUrl } from "@/lib/app-url"
+import { getAppBaseUrl } from "@/lib/app-url"
+import {
+  buildCanonicalUrl,
+  getCanonicalMetadataBase
+} from "@/lib/seo/site-url"
 
 const DEFAULT_SOCIAL_IMAGE_PATH = "/opengraph-image"
 const DEFAULT_TWITTER_IMAGE_PATH = "/twitter-image"
@@ -21,7 +25,7 @@ export const SITE_KEYWORDS = [
 ]
 
 export function getMetadataBase() {
-  return new URL(getAppBaseUrl())
+  return getCanonicalMetadataBase()
 }
 
 function normalizeMetadataPath(path: string) {
@@ -57,13 +61,17 @@ export function isSearchIndexingEnabled() {
     return false
   }
 
+  if (process.env.VERCEL_ENV === "production") {
+    return true
+  }
+
   return !getAppBaseUrl().includes("localhost")
 }
 
 function buildOpenGraphImages(alt: string) {
   return [
     {
-      url: buildAppUrl(DEFAULT_SOCIAL_IMAGE_PATH),
+      url: buildCanonicalUrl(DEFAULT_SOCIAL_IMAGE_PATH),
       width: 1200,
       height: 630,
       alt
@@ -122,7 +130,7 @@ export function buildSiteMetadata(): Metadata {
       card: "summary_large_image",
       title: fullTitle,
       description: SITE_DESCRIPTION,
-      images: [buildAppUrl(DEFAULT_TWITTER_IMAGE_PATH)]
+      images: [buildCanonicalUrl(DEFAULT_TWITTER_IMAGE_PATH)]
     },
     robots: buildRobots(false),
     verification: {
@@ -168,7 +176,7 @@ export function buildPageMetadata(input: {
       card: "summary_large_image",
       title: fullTitle,
       description: input.description,
-      images: [buildAppUrl(DEFAULT_TWITTER_IMAGE_PATH)]
+      images: [buildCanonicalUrl(DEFAULT_TWITTER_IMAGE_PATH)]
     },
     robots: buildRobots(Boolean(input.noIndex))
   }

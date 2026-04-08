@@ -11,9 +11,9 @@ import {
 import { ccnaCommercialSupportLinks } from "@/features/marketing/lib/ccna-commercial-pages";
 import { getCurrentUser } from "@/lib/auth/session";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
 import { getPublicErrorMessage } from "@/lib/errors/public-error";
 import { buildPageMetadata, SITE_NAME } from "@/lib/seo/metadata";
+import { buildCanonicalUrl } from "@/lib/seo/site-url";
 import type { BillingAccessState, PricingPlanCardData } from "@/types/billing";
 
 const pricingBenefits = [
@@ -127,14 +127,14 @@ export default async function PricingPage({
       "@context": "https://schema.org",
       "@type": "OfferCatalog",
       name: `${SITE_NAME} pricing`,
-      url: buildAppUrl(APP_ROUTES.pricing),
+      url: buildCanonicalUrl(APP_ROUTES.pricing),
       itemListElement: plans.map((plan) => ({
         "@type": "Offer",
         name: plan.name,
         description: plan.description,
         price: Number(plan.priceAmount.toFixed(2)),
         priceCurrency: plan.priceCurrency,
-        url: buildAppUrl(APP_ROUTES.pricing),
+        url: buildCanonicalUrl(APP_ROUTES.pricing),
         availability: "https://schema.org/InStock",
         category: plan.billingInterval === "none" ? "Free plan" : "Paid plan"
       }))
@@ -159,13 +159,13 @@ export default async function PricingPage({
           "@type": "ListItem",
           position: 1,
           name: "Home",
-          item: buildAppUrl(APP_ROUTES.home)
+          item: buildCanonicalUrl(APP_ROUTES.home)
         },
         {
           "@type": "ListItem",
           position: 2,
           name: "Pricing",
-          item: buildAppUrl(APP_ROUTES.pricing)
+          item: buildCanonicalUrl(APP_ROUTES.pricing)
         }
       ]
     }
