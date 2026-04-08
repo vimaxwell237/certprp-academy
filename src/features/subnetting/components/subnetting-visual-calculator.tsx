@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 
+import { Card } from "@/components/ui/card";
+import { OpenAiTutorButton } from "@/features/ai-tutor/components/open-ai-tutor-button";
+import { buildSubnettingCalculatorTutorRequest } from "@/features/subnetting/lib/subnetting-ai-tutor";
 import {
   buildVisualCalculation,
   parseIPv4CIDR
@@ -29,6 +32,11 @@ export function SubnettingVisualCalculator({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SubnetVisualCalculationResult | null>(null);
   const [revealedStepCount, setRevealedStepCount] = useState(0);
+  const tutorRequest = buildSubnettingCalculatorTutorRequest({
+    inputValue,
+    mode,
+    result
+  });
 
   useEffect(() => {
     if (!result) {
@@ -66,6 +74,27 @@ export function SubnettingVisualCalculator({
         onModeChange={setMode}
         onSubmit={handleSubmit}
       />
+
+      <Card className="border-cyan/15 bg-cyan/5">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
+          Live AI Tutor
+        </p>
+        <h2 className="mt-2 font-display text-2xl font-semibold text-ink">
+          Ask about this subnet calculation
+        </h2>
+        <p className="mt-2 text-sm leading-7 text-slate">
+          {result
+            ? "Open the current AI tutor with the exact input, interesting octet, block size, and final subnet range from this calculator."
+            : "Send the current IPv4/CIDR input and mode to the live tutor for a guided explanation before or after you calculate."}
+        </p>
+        <OpenAiTutorButton
+          className="mt-4"
+          label={result ? "Explain This Calculation" : "Help Me Solve This Input"}
+          lessonContext={tutorRequest.lessonContext}
+          question={tutorRequest.question}
+          source="subnetting-calculator-live"
+        />
+      </Card>
 
       {error ? (
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">

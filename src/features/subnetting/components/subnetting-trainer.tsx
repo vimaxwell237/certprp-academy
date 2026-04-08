@@ -2,7 +2,10 @@
 
 import { useState, useTransition } from "react";
 
+import { Card } from "@/components/ui/card";
+import { OpenAiTutorButton } from "@/features/ai-tutor/components/open-ai-tutor-button";
 import { submitSubnettingAttemptAction } from "@/features/subnetting/actions/subnetting-actions";
+import { buildSubnettingTrainerTutorRequest } from "@/features/subnetting/lib/subnetting-ai-tutor";
 import {
   generateRandomSubnet,
   validateSubnetAnswer
@@ -46,6 +49,11 @@ export function SubnettingTrainer({
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [incorrectCountForCurrentProblem, setIncorrectCountForCurrentProblem] = useState(0);
   const [isPending, startTransition] = useTransition();
+  const tutorRequest = buildSubnettingTrainerTutorRequest({
+    answers,
+    problem,
+    result
+  });
 
   function resetForProblem(nextProblem: GeneratedSubnetProblem) {
     setProblem(nextProblem);
@@ -127,6 +135,37 @@ export function SubnettingTrainer({
       </div>
 
       <div className="space-y-6">
+        <Card className="border-cyan/15 bg-cyan/5">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
+            Live AI Tutor
+          </p>
+          <h2 className="mt-2 font-display text-2xl font-semibold text-ink">
+            {result
+              ? result.isCorrect
+                ? "Understand why this one worked"
+                : "Review this exact subnetting miss"
+              : "Talk through this problem in real time"}
+          </h2>
+          <p className="mt-2 text-sm leading-7 text-slate">
+            {result
+              ? "Open the current AI tutor with this problem, your latest result, and the correct subnet values so it can explain the reasoning step by step."
+              : "Send the active trainer prompt to the current AI tutor and get a guided explanation without leaving the page."}
+          </p>
+          <OpenAiTutorButton
+            className="mt-4"
+            label={
+              result
+                ? result.isCorrect
+                  ? "Ask Why This Works"
+                  : "Review This Attempt with AI"
+                : "Walk Me Through This Problem"
+            }
+            lessonContext={tutorRequest.lessonContext}
+            question={tutorRequest.question}
+            source="subnetting-trainer-live"
+          />
+        </Card>
+
         <SubnetExplanationPanel
           hintVisible={Boolean(result && !result.isCorrect && incorrectCountForCurrentProblem >= 2)}
           result={result}

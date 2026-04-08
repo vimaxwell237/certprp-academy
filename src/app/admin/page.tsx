@@ -28,6 +28,11 @@ const quickLinks = [
     description: "Edit lesson summaries, full content, timings, and video references."
   },
   {
+    href: APP_ROUTES.adminExamSimulator,
+    title: "Exam Simulator",
+    description: "Manage the question bank that feeds timed exams, then jump to the learner simulator when you want to preview it."
+  },
+  {
     href: APP_ROUTES.adminPlans,
     title: "Plans",
     description: "Keep pricing plans accurate without dropping back into SQL."

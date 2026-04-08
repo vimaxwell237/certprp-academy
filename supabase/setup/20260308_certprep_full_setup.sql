@@ -5143,6 +5143,829 @@ grant select, insert, update, delete on public.plans to authenticated;
 -- set role = 'admin'
 -- where user_id = 'YOUR_AUTH_USER_UUID';
 
+-- Phase 36: admin quiz question media and storage
+
+alter table public.quiz_questions
+  add column if not exists question_image_path text null,
+  add column if not exists question_image_alt text not null default '',
+  add column if not exists question_image_path_secondary text null,
+  add column if not exists question_image_alt_secondary text not null default '';
+
+alter table public.exam_attempt_answers
+  add column if not exists question_image_path_snapshot text null,
+  add column if not exists question_image_alt_snapshot text not null default '',
+  add column if not exists question_image_path_secondary_snapshot text null,
+  add column if not exists question_image_alt_secondary_snapshot text not null default '';
+
+drop policy if exists "quiz_questions_admin_all" on public.quiz_questions;
+create policy "quiz_questions_admin_all"
+on public.quiz_questions
+for all
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "question_options_admin_all" on public.question_options;
+create policy "question_options_admin_all"
+on public.question_options
+for all
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+grant select, insert, update, delete on public.quiz_questions to authenticated;
+grant select, insert, update, delete on public.question_options to authenticated;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'quiz-question-images',
+  'quiz-question-images',
+  true,
+  5242880,
+  array[
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif'
+  ]::text[]
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "quiz_question_images_select_authenticated" on storage.objects;
+create policy "quiz_question_images_select_authenticated"
+on storage.objects
+for select
+to authenticated
+using (bucket_id = 'quiz-question-images');
+
+drop policy if exists "quiz_question_images_admin_insert" on storage.objects;
+create policy "quiz_question_images_admin_insert"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'quiz-question-images'
+  and public.is_admin()
+);
+
+drop policy if exists "quiz_question_images_admin_update" on storage.objects;
+create policy "quiz_question_images_admin_update"
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'quiz-question-images'
+  and public.is_admin()
+)
+with check (
+  bucket_id = 'quiz-question-images'
+  and public.is_admin()
+);
+
+drop policy if exists "quiz_question_images_admin_delete" on storage.objects;
+create policy "quiz_question_images_admin_delete"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'quiz-question-images'
+  and public.is_admin()
+);
+
+
+-- Phase 38: quiz read RPCs without service-role dependency
+
+create or replace function public.get_published_quiz_detail(target_quiz_slug text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with eligible_quiz as (
+    select
+      q.id,
+      q.title,
+      q.slug,
+      q.description,
+      resolved_module.title as module_title,
+      resolved_module.slug as module_slug,
+      l.title as lesson_title,
+      l.slug as lesson_slug,
+      c.title as course_title,
+      c.slug as course_slug
+    from public.quizzes q
+    left join public.lessons l
+      on l.id = q.lesson_id
+    left join public.modules resolved_module
+      on resolved_module.id = coalesce(q.module_id, l.module_id)
+    left join public.courses c
+      on c.id = resolved_module.course_id
+    left join public.certifications cert
+      on cert.id = c.certification_id
+    where auth.uid() is not null
+      and q.slug = target_quiz_slug
+      and q.is_published = true
+      and resolved_module.is_published = true
+      and c.is_published = true
+      and cert.is_published = true
+      and (
+        (q.module_id is not null and q.lesson_id is null)
+        or (
+          q.module_id is null
+          and q.lesson_id is not null
+          and l.is_published = true
+        )
+      )
+    limit 1
+  )
+  select jsonb_build_object(
+    'id', eq.id,
+    'title', eq.title,
+    'slug', eq.slug,
+    'description', eq.description,
+    'course_title', eq.course_title,
+    'course_slug', eq.course_slug,
+    'module_title', eq.module_title,
+    'module_slug', eq.module_slug,
+    'lesson_title', eq.lesson_title,
+    'lesson_slug', eq.lesson_slug,
+    'questions', coalesce(questions.items, '[]'::jsonb)
+  )
+  from eligible_quiz eq
+  left join lateral (
+    select jsonb_agg(
+      jsonb_build_object(
+        'id', qq.id,
+        'question_text', qq.question_text,
+        'difficulty', qq.difficulty,
+        'order_index', qq.order_index,
+        'question_type', qq.question_type,
+        'question_image_path', qq.question_image_path,
+        'question_image_alt', qq.question_image_alt,
+        'question_image_path_secondary', qq.question_image_path_secondary,
+        'question_image_alt_secondary', qq.question_image_alt_secondary,
+        'options', coalesce(options.items, '[]'::jsonb)
+      )
+      order by qq.order_index
+    ) as items
+    from public.quiz_questions qq
+    left join lateral (
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', qo.id,
+          'option_text', qo.option_text,
+          'order_index', qo.order_index
+        )
+        order by qo.order_index
+      ) as items
+      from public.question_options qo
+      where qo.question_id = qq.id
+    ) options
+      on true
+    where qq.quiz_id = eq.id
+  ) questions
+    on true;
+$$;
+
+create or replace function public.get_quiz_attempt_review(
+  target_attempt_id uuid,
+  target_quiz_slug text
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with owned_attempt as (
+    select
+      qa.id as attempt_id,
+      qa.score,
+      qa.total_questions,
+      qa.correct_answers,
+      qa.completed_at,
+      q.id as quiz_id,
+      q.title as quiz_title,
+      q.slug as quiz_slug,
+      q.description,
+      resolved_module.title as module_title,
+      resolved_module.slug as module_slug,
+      c.title as course_title,
+      c.slug as course_slug
+    from public.quiz_attempts qa
+    join public.quizzes q
+      on q.id = qa.quiz_id
+    left join public.lessons l
+      on l.id = q.lesson_id
+    left join public.modules resolved_module
+      on resolved_module.id = coalesce(q.module_id, l.module_id)
+    left join public.courses c
+      on c.id = resolved_module.course_id
+    where auth.uid() is not null
+      and qa.id = target_attempt_id
+      and qa.user_id = auth.uid()
+      and q.slug = target_quiz_slug
+    limit 1
+  )
+  select jsonb_build_object(
+    'attempt_id', oa.attempt_id,
+    'quiz_title', oa.quiz_title,
+    'quiz_slug', oa.quiz_slug,
+    'description', oa.description,
+    'score', oa.score,
+    'total_questions', oa.total_questions,
+    'correct_answers', oa.correct_answers,
+    'completed_at', oa.completed_at,
+    'course_title', oa.course_title,
+    'course_slug', oa.course_slug,
+    'module_title', oa.module_title,
+    'module_slug', oa.module_slug,
+    'review', coalesce(review.items, '[]'::jsonb)
+  )
+  from owned_attempt oa
+  left join lateral (
+    select jsonb_agg(
+      jsonb_build_object(
+        'id', qq.id,
+        'question_text', qq.question_text,
+        'explanation', qq.explanation,
+        'difficulty', qq.difficulty,
+        'question_image_path', qq.question_image_path,
+        'question_image_alt', qq.question_image_alt,
+        'question_image_path_secondary', qq.question_image_path_secondary,
+        'question_image_alt_secondary', qq.question_image_alt_secondary,
+        'is_correct', coalesce(attempt_answer.is_correct, false),
+        'selected_option_id', attempt_answer.selected_option_id,
+        'correct_option_id', correct_option.id,
+        'options', coalesce(options.items, '[]'::jsonb)
+      )
+      order by qq.order_index
+    ) as items
+    from public.quiz_attempt_answers attempt_answer
+    join public.quiz_questions qq
+      on qq.id = attempt_answer.question_id
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.is_correct = true
+      order by qo.order_index
+      limit 1
+    ) correct_option
+      on true
+    left join lateral (
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', qo.id,
+          'option_text', qo.option_text,
+          'is_correct', qo.is_correct,
+          'is_selected', coalesce(qo.id = attempt_answer.selected_option_id, false)
+        )
+        order by qo.order_index
+      ) as items
+      from public.question_options qo
+      where qo.question_id = qq.id
+    ) options
+      on true
+    where qq.quiz_id = oa.quiz_id
+  ) review
+    on true;
+$$;
+
+grant execute on function public.get_published_quiz_detail(text) to authenticated;
+grant execute on function public.get_quiz_attempt_review(uuid, text) to authenticated;
+
+create or replace function public.submit_published_quiz_attempt(
+  target_quiz_slug text,
+  submitted_answers jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  resolved_quiz_id uuid;
+  attempt_id uuid;
+  total_questions integer;
+  correct_answers integer;
+  score integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  select q.id
+  into resolved_quiz_id
+  from public.quizzes q
+  left join public.lessons l
+    on l.id = q.lesson_id
+  left join public.modules resolved_module
+    on resolved_module.id = coalesce(q.module_id, l.module_id)
+  left join public.courses c
+    on c.id = resolved_module.course_id
+  left join public.certifications cert
+    on cert.id = c.certification_id
+  where q.slug = target_quiz_slug
+    and q.is_published = true
+    and resolved_module.is_published = true
+    and c.is_published = true
+    and cert.is_published = true
+    and (
+      (q.module_id is not null and q.lesson_id is null)
+      or (
+        q.module_id is null
+        and q.lesson_id is not null
+        and l.is_published = true
+      )
+    )
+  limit 1;
+
+  if resolved_quiz_id is null then
+    return null;
+  end if;
+
+  with question_bank as (
+    select
+      qq.id as question_id,
+      correct_option.id as correct_option_id,
+      selected_option.id as selected_option_id
+    from public.quiz_questions qq
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.is_correct = true
+      order by qo.order_index
+      limit 1
+    ) correct_option
+      on true
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.id::text = nullif(coalesce(submitted_answers, '{}'::jsonb) ->> qq.id::text, '')
+      limit 1
+    ) selected_option
+      on true
+    where qq.quiz_id = resolved_quiz_id
+  )
+  select
+    count(*)::integer,
+    count(*) filter (
+      where correct_option_id is not null
+        and selected_option_id = correct_option_id
+    )::integer
+  into total_questions, correct_answers
+  from question_bank;
+
+  if coalesce(total_questions, 0) = 0 then
+    raise exception 'Quiz does not contain any questions yet.';
+  end if;
+
+  score := round((correct_answers::numeric / total_questions::numeric) * 100);
+
+  insert into public.quiz_attempts (
+    user_id,
+    quiz_id,
+    score,
+    total_questions,
+    correct_answers,
+    completed_at
+  )
+  values (
+    auth.uid(),
+    resolved_quiz_id,
+    score,
+    total_questions,
+    correct_answers,
+    timezone('utc', now())
+  )
+  returning id into attempt_id;
+
+  insert into public.quiz_attempt_answers (
+    quiz_attempt_id,
+    question_id,
+    selected_option_id,
+    is_correct
+  )
+  with question_bank as (
+    select
+      qq.id as question_id,
+      correct_option.id as correct_option_id,
+      selected_option.id as selected_option_id
+    from public.quiz_questions qq
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.is_correct = true
+      order by qo.order_index
+      limit 1
+    ) correct_option
+      on true
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.id::text = nullif(coalesce(submitted_answers, '{}'::jsonb) ->> qq.id::text, '')
+      limit 1
+    ) selected_option
+      on true
+    where qq.quiz_id = resolved_quiz_id
+  )
+  select
+    attempt_id,
+    question_id,
+    selected_option_id,
+    correct_option_id is not null and selected_option_id = correct_option_id
+  from question_bank;
+
+  return jsonb_build_object(
+    'attempt_id', attempt_id,
+    'score', score,
+    'total_questions', total_questions,
+    'correct_answers', correct_answers
+  );
+end;
+$$;
+
+grant execute on function public.submit_published_quiz_attempt(text, jsonb) to authenticated;
+
+
+-- Phase 40: exam-bank-only question visibility
+
+alter table public.quiz_questions
+  add column if not exists show_in_quiz boolean not null default true;
+
+create index if not exists idx_quiz_questions_show_in_quiz
+  on public.quiz_questions(show_in_quiz);
+
+create or replace function public.get_published_quiz_detail(target_quiz_slug text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with eligible_quiz as (
+    select
+      q.id,
+      q.title,
+      q.slug,
+      q.description,
+      resolved_module.title as module_title,
+      resolved_module.slug as module_slug,
+      l.title as lesson_title,
+      l.slug as lesson_slug,
+      c.title as course_title,
+      c.slug as course_slug
+    from public.quizzes q
+    left join public.lessons l
+      on l.id = q.lesson_id
+    left join public.modules resolved_module
+      on resolved_module.id = coalesce(q.module_id, l.module_id)
+    left join public.courses c
+      on c.id = resolved_module.course_id
+    left join public.certifications cert
+      on cert.id = c.certification_id
+    where auth.uid() is not null
+      and q.slug = target_quiz_slug
+      and q.is_published = true
+      and resolved_module.is_published = true
+      and c.is_published = true
+      and cert.is_published = true
+      and (
+        (q.module_id is not null and q.lesson_id is null)
+        or (
+          q.module_id is null
+          and q.lesson_id is not null
+          and l.is_published = true
+        )
+      )
+    limit 1
+  )
+  select jsonb_build_object(
+    'id', eq.id,
+    'title', eq.title,
+    'slug', eq.slug,
+    'description', eq.description,
+    'course_title', eq.course_title,
+    'course_slug', eq.course_slug,
+    'module_title', eq.module_title,
+    'module_slug', eq.module_slug,
+    'lesson_title', eq.lesson_title,
+    'lesson_slug', eq.lesson_slug,
+    'questions', coalesce(questions.items, '[]'::jsonb)
+  )
+  from eligible_quiz eq
+  left join lateral (
+    select jsonb_agg(
+      jsonb_build_object(
+        'id', qq.id,
+        'question_text', qq.question_text,
+        'difficulty', qq.difficulty,
+        'order_index', qq.order_index,
+        'question_type', qq.question_type,
+        'question_image_path', qq.question_image_path,
+        'question_image_alt', qq.question_image_alt,
+        'question_image_path_secondary', qq.question_image_path_secondary,
+        'question_image_alt_secondary', qq.question_image_alt_secondary,
+        'options', coalesce(options.items, '[]'::jsonb)
+      )
+      order by qq.order_index
+    ) as items
+    from public.quiz_questions qq
+    left join lateral (
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', qo.id,
+          'option_text', qo.option_text,
+          'order_index', qo.order_index
+        )
+        order by qo.order_index
+      ) as items
+      from public.question_options qo
+      where qo.question_id = qq.id
+    ) options
+      on true
+    where qq.quiz_id = eq.id
+      and qq.show_in_quiz = true
+  ) questions
+    on true;
+$$;
+
+create or replace function public.get_quiz_attempt_review(
+  target_attempt_id uuid,
+  target_quiz_slug text
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with owned_attempt as (
+    select
+      qa.id as attempt_id,
+      qa.score,
+      qa.total_questions,
+      qa.correct_answers,
+      qa.completed_at,
+      q.id as quiz_id,
+      q.title as quiz_title,
+      q.slug as quiz_slug,
+      q.description,
+      resolved_module.title as module_title,
+      resolved_module.slug as module_slug,
+      c.title as course_title,
+      c.slug as course_slug
+    from public.quiz_attempts qa
+    join public.quizzes q
+      on q.id = qa.quiz_id
+    left join public.lessons l
+      on l.id = q.lesson_id
+    left join public.modules resolved_module
+      on resolved_module.id = coalesce(q.module_id, l.module_id)
+    left join public.courses c
+      on c.id = resolved_module.course_id
+    where auth.uid() is not null
+      and qa.id = target_attempt_id
+      and qa.user_id = auth.uid()
+      and q.slug = target_quiz_slug
+    limit 1
+  )
+  select jsonb_build_object(
+    'attempt_id', oa.attempt_id,
+    'quiz_title', oa.quiz_title,
+    'quiz_slug', oa.quiz_slug,
+    'description', oa.description,
+    'score', oa.score,
+    'total_questions', oa.total_questions,
+    'correct_answers', oa.correct_answers,
+    'completed_at', oa.completed_at,
+    'course_title', oa.course_title,
+    'course_slug', oa.course_slug,
+    'module_title', oa.module_title,
+    'module_slug', oa.module_slug,
+    'review', coalesce(review.items, '[]'::jsonb)
+  )
+  from owned_attempt oa
+  left join lateral (
+    select jsonb_agg(
+      jsonb_build_object(
+        'id', qq.id,
+        'question_text', qq.question_text,
+        'explanation', qq.explanation,
+        'difficulty', qq.difficulty,
+        'question_image_path', qq.question_image_path,
+        'question_image_alt', qq.question_image_alt,
+        'question_image_path_secondary', qq.question_image_path_secondary,
+        'question_image_alt_secondary', qq.question_image_alt_secondary,
+        'is_correct', coalesce(attempt_answer.is_correct, false),
+        'selected_option_id', attempt_answer.selected_option_id,
+        'correct_option_id', correct_option.id,
+        'options', coalesce(options.items, '[]'::jsonb)
+      )
+      order by qq.order_index
+    ) as items
+    from public.quiz_attempt_answers attempt_answer
+    join public.quiz_questions qq
+      on qq.id = attempt_answer.question_id
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.is_correct = true
+      order by qo.order_index
+      limit 1
+    ) correct_option
+      on true
+    left join lateral (
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', qo.id,
+          'option_text', qo.option_text,
+          'is_correct', qo.is_correct,
+          'is_selected', coalesce(qo.id = attempt_answer.selected_option_id, false)
+        )
+        order by qo.order_index
+      ) as items
+      from public.question_options qo
+      where qo.question_id = qq.id
+    ) options
+      on true
+    where attempt_answer.quiz_attempt_id = oa.attempt_id
+  ) review
+    on true;
+$$;
+
+create or replace function public.submit_published_quiz_attempt(
+  target_quiz_slug text,
+  submitted_answers jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  resolved_quiz_id uuid;
+  attempt_id uuid;
+  total_questions integer;
+  correct_answers integer;
+  score integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  select q.id
+  into resolved_quiz_id
+  from public.quizzes q
+  left join public.lessons l
+    on l.id = q.lesson_id
+  left join public.modules resolved_module
+    on resolved_module.id = coalesce(q.module_id, l.module_id)
+  left join public.courses c
+    on c.id = resolved_module.course_id
+  left join public.certifications cert
+    on cert.id = c.certification_id
+  where q.slug = target_quiz_slug
+    and q.is_published = true
+    and resolved_module.is_published = true
+    and c.is_published = true
+    and cert.is_published = true
+    and (
+      (q.module_id is not null and q.lesson_id is null)
+      or (
+        q.module_id is null
+        and q.lesson_id is not null
+        and l.is_published = true
+      )
+    )
+  limit 1;
+
+  if resolved_quiz_id is null then
+    return null;
+  end if;
+
+  with question_bank as (
+    select
+      qq.id as question_id,
+      correct_option.id as correct_option_id,
+      selected_option.id as selected_option_id
+    from public.quiz_questions qq
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.is_correct = true
+      order by qo.order_index
+      limit 1
+    ) correct_option
+      on true
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.id::text = nullif(coalesce(submitted_answers, '{}'::jsonb) ->> qq.id::text, '')
+      limit 1
+    ) selected_option
+      on true
+    where qq.quiz_id = resolved_quiz_id
+      and qq.show_in_quiz = true
+  )
+  select
+    count(*)::integer,
+    count(*) filter (
+      where correct_option_id is not null
+        and selected_option_id = correct_option_id
+    )::integer
+  into total_questions, correct_answers
+  from question_bank;
+
+  if coalesce(total_questions, 0) = 0 then
+    raise exception 'Quiz does not contain any learner quiz questions yet.';
+  end if;
+
+  score := round((correct_answers::numeric / total_questions::numeric) * 100);
+
+  insert into public.quiz_attempts (
+    user_id,
+    quiz_id,
+    score,
+    total_questions,
+    correct_answers,
+    completed_at
+  )
+  values (
+    auth.uid(),
+    resolved_quiz_id,
+    score,
+    total_questions,
+    correct_answers,
+    timezone('utc', now())
+  )
+  returning id into attempt_id;
+
+  insert into public.quiz_attempt_answers (
+    quiz_attempt_id,
+    question_id,
+    selected_option_id,
+    is_correct
+  )
+  with question_bank as (
+    select
+      qq.id as question_id,
+      correct_option.id as correct_option_id,
+      selected_option.id as selected_option_id
+    from public.quiz_questions qq
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.is_correct = true
+      order by qo.order_index
+      limit 1
+    ) correct_option
+      on true
+    left join lateral (
+      select qo.id
+      from public.question_options qo
+      where qo.question_id = qq.id
+        and qo.id::text = nullif(coalesce(submitted_answers, '{}'::jsonb) ->> qq.id::text, '')
+      limit 1
+    ) selected_option
+      on true
+    where qq.quiz_id = resolved_quiz_id
+      and qq.show_in_quiz = true
+  )
+  select
+    attempt_id,
+    question_id,
+    selected_option_id,
+    correct_option_id is not null and selected_option_id = correct_option_id
+  from question_bank;
+
+  return jsonb_build_object(
+    'attempt_id', attempt_id,
+    'score', score,
+    'total_questions', total_questions,
+    'correct_answers', correct_answers
+  );
+end;
+$$;
+
+grant execute on function public.get_published_quiz_detail(text) to authenticated;
+grant execute on function public.get_quiz_attempt_review(uuid, text) to authenticated;
+grant execute on function public.submit_published_quiz_attempt(text, jsonb) to authenticated;
+
 
 
 -- Phase 11: Tutor scheduling and live session management foundation
@@ -13609,4 +14432,389 @@ grant execute on function public.record_billing_payment_event(uuid, text, text, 
 
 revoke execute on function public.finalize_billing_checkout(uuid, text, text, text, text, timestamptz, timestamptz, text, jsonb) from public, anon;
 grant execute on function public.finalize_billing_checkout(uuid, text, text, text, text, timestamptz, timestamptz, text, jsonb) to authenticated;
+
+-- ==============================
+-- Phase 41: Drag-and-drop question support
+-- Source: supabase\migrations\20260401_phase41_drag_drop_question_support.sql
+-- ==============================
+alter table public.quiz_questions
+  add column if not exists interaction_config jsonb not null default '{}'::jsonb;
+
+alter table public.question_options
+  add column if not exists match_key text null;
+
+alter table public.quiz_questions
+  drop constraint if exists quiz_questions_question_type_check;
+
+alter table public.quiz_questions
+  add constraint quiz_questions_question_type_check
+  check (question_type in ('single_choice', 'drag_drop_categorize'));
+
+alter table public.exam_attempt_answers
+  add column if not exists interaction_config_snapshot jsonb not null default '{}'::jsonb,
+  add column if not exists answer_payload jsonb null;
+
+alter table public.exam_attempt_answers
+  drop constraint if exists exam_attempt_answers_question_type_snapshot_check;
+
+alter table public.exam_attempt_answers
+  add constraint exam_attempt_answers_question_type_snapshot_check
+  check (question_type_snapshot in ('single_choice', 'drag_drop_categorize'));
+
+-- ==============================
+-- Phase 42: Exam start RPC without service-role dependency
+-- Source: supabase\migrations\20260402_phase42_exam_start_rpc.sql
+-- ==============================
+create or replace function public.start_published_exam_attempt(target_exam_slug text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_exam_config_id uuid;
+  v_exam_slug text;
+  v_selection_strategy text;
+  v_included_module_slugs text[];
+  v_question_count integer;
+  v_duration_seconds integer;
+  v_attempt_id uuid;
+  v_active_attempt_id uuid;
+  v_active_expires_at timestamptz;
+  v_inserted_answer_count integer;
+  v_started_at timestamptz;
+  v_expires_at timestamptz;
+begin
+  v_user_id := auth.uid();
+
+  if v_user_id is null then
+    raise exception 'Authenticated user is required to start an exam attempt.';
+  end if;
+
+  select
+    id,
+    slug,
+    selection_strategy,
+    included_module_slugs,
+    question_count,
+    time_limit_minutes * 60
+  into
+    v_exam_config_id,
+    v_exam_slug,
+    v_selection_strategy,
+    v_included_module_slugs,
+    v_question_count,
+    v_duration_seconds
+  from public.exam_configs
+  where slug = target_exam_slug
+    and is_published = true
+  limit 1;
+
+  if v_exam_config_id is null then
+    raise exception 'Exam config was not found or is not published.';
+  end if;
+
+  select
+    id,
+    expires_at
+  into
+    v_active_attempt_id,
+    v_active_expires_at
+  from public.exam_attempts
+  where user_id = v_user_id
+    and exam_config_id = v_exam_config_id
+    and status = 'in_progress'
+  order by started_at desc
+  limit 1;
+
+  if v_active_attempt_id is not null then
+    if timezone('utc', now()) < v_active_expires_at then
+      return jsonb_build_object(
+        'attempt_id', v_active_attempt_id,
+        'exam_slug', v_exam_slug
+      );
+    end if;
+
+    update public.exam_attempts
+    set
+      status = 'timed_out',
+      submitted_at = coalesce(submitted_at, timezone('utc', now())),
+      time_used_seconds = coalesce(time_used_seconds, duration_seconds),
+      updated_at = timezone('utc', now())
+    where id = v_active_attempt_id
+      and status = 'in_progress';
+  end if;
+
+  v_started_at := timezone('utc', now());
+  v_expires_at := v_started_at + make_interval(secs => v_duration_seconds);
+
+  insert into public.exam_attempts (
+    user_id,
+    exam_config_id,
+    expires_at,
+    duration_seconds,
+    total_questions,
+    unanswered_answers
+  )
+  values (
+    v_user_id,
+    v_exam_config_id,
+    v_expires_at,
+    v_duration_seconds,
+    greatest(v_question_count, 1),
+    greatest(v_question_count, 1)
+  )
+  returning id into v_attempt_id;
+
+  with module_order as (
+    select
+      m.slug as module_slug,
+      random() as module_random_order
+    from public.quizzes q
+    left join public.lessons l
+      on l.id = q.lesson_id
+    join public.modules m
+      on m.id = coalesce(q.module_id, l.module_id)
+    join public.courses c
+      on c.id = m.course_id
+    join public.certifications cert
+      on cert.id = c.certification_id
+    join public.quiz_questions qq
+      on qq.quiz_id = q.id
+    where q.is_published = true
+      and m.is_published = true
+      and c.is_published = true
+      and cert.is_published = true
+      and (
+        q.module_id is not null
+        or (q.lesson_id is not null and l.is_published = true)
+      )
+      and (
+        coalesce(array_length(v_included_module_slugs, 1), 0) = 0
+        or m.slug = any(v_included_module_slugs)
+      )
+    group by m.slug
+  ),
+  question_bank as (
+    select
+      qq.id as question_id,
+      m.slug as module_slug,
+      m.title as module_title,
+      qq.show_in_quiz,
+      qq.question_text,
+      qq.explanation,
+      qq.difficulty,
+      qq.question_type,
+      qq.interaction_config,
+      qq.question_image_path,
+      qq.question_image_alt,
+      qq.question_image_path_secondary,
+      qq.question_image_alt_secondary,
+      coalesce(
+        (
+          select jsonb_agg(
+            jsonb_build_object(
+              'id', qo.id,
+              'optionText', qo.option_text,
+              'orderIndex', qo.order_index,
+              'isCorrect', qo.is_correct,
+              'matchKey', qo.match_key
+            )
+            order by qo.order_index
+          )
+          from public.question_options qo
+          where qo.question_id = qq.id
+        ),
+        '[]'::jsonb
+      ) as options_snapshot,
+      (
+        select qo.id
+        from public.question_options qo
+        where qo.question_id = qq.id
+          and qo.is_correct = true
+        order by qo.order_index
+        limit 1
+      ) as correct_option_id,
+      (
+        case
+          when qq.show_in_quiz = false then 2
+          else 0
+        end
+        +
+        case
+          when qq.question_type = 'drag_drop_categorize' then 1
+          else 0
+        end
+      ) as question_priority,
+      module_order.module_random_order,
+      row_number() over (
+        partition by m.slug
+        order by
+          (
+            case
+              when qq.show_in_quiz = false then 2
+              else 0
+            end
+            +
+            case
+              when qq.question_type = 'drag_drop_categorize' then 1
+              else 0
+            end
+          ) desc,
+          random()
+      ) as module_question_order,
+      random() as random_order
+    from public.quizzes q
+    left join public.lessons l
+      on l.id = q.lesson_id
+    join public.modules m
+      on m.id = coalesce(q.module_id, l.module_id)
+    join public.courses c
+      on c.id = m.course_id
+    join public.certifications cert
+      on cert.id = c.certification_id
+    join public.quiz_questions qq
+      on qq.quiz_id = q.id
+    join module_order
+      on module_order.module_slug = m.slug
+    where q.is_published = true
+      and m.is_published = true
+      and c.is_published = true
+      and cert.is_published = true
+      and (
+        q.module_id is not null
+        or (q.lesson_id is not null and l.is_published = true)
+      )
+      and (
+        coalesce(array_length(v_included_module_slugs, 1), 0) = 0
+        or m.slug = any(v_included_module_slugs)
+      )
+  ),
+  selected_questions as (
+    select *
+    from question_bank
+    order by
+      case
+        when v_selection_strategy = 'balanced'
+          then module_question_order::double precision
+        else 0::double precision
+      end asc,
+      case
+        when v_selection_strategy = 'random'
+          then question_priority::double precision
+        else 0::double precision
+      end desc,
+      case
+        when v_selection_strategy = 'balanced'
+          then module_random_order
+        else random_order
+      end asc,
+      random_order asc
+    limit greatest(v_question_count, 1)
+  ),
+  inserted_rows as (
+    insert into public.exam_attempt_answers (
+      exam_attempt_id,
+      question_id,
+      question_order,
+      module_slug_snapshot,
+      module_title_snapshot,
+      question_text_snapshot,
+      explanation_snapshot,
+      difficulty_snapshot,
+      question_type_snapshot,
+      interaction_config_snapshot,
+      question_image_path_snapshot,
+      question_image_alt_snapshot,
+      question_image_path_secondary_snapshot,
+      question_image_alt_secondary_snapshot,
+      options_snapshot,
+      correct_option_id
+    )
+    select
+      v_attempt_id,
+      selected_questions.question_id,
+      row_number() over (
+        order by
+          case
+            when v_selection_strategy = 'balanced'
+              then selected_questions.module_question_order::double precision
+            else 0::double precision
+          end asc,
+          case
+            when v_selection_strategy = 'random'
+              then selected_questions.question_priority::double precision
+            else 0::double precision
+          end desc,
+          case
+            when v_selection_strategy = 'balanced'
+              then selected_questions.module_random_order
+            else selected_questions.random_order
+          end asc,
+          selected_questions.random_order asc
+      ),
+      selected_questions.module_slug,
+      selected_questions.module_title,
+      selected_questions.question_text,
+      selected_questions.explanation,
+      selected_questions.difficulty,
+      selected_questions.question_type,
+      coalesce(selected_questions.interaction_config, '{}'::jsonb),
+      selected_questions.question_image_path,
+      selected_questions.question_image_alt,
+      selected_questions.question_image_path_secondary,
+      selected_questions.question_image_alt_secondary,
+      selected_questions.options_snapshot,
+      case
+        when selected_questions.question_type = 'single_choice'
+          then selected_questions.correct_option_id
+        else null
+      end
+    from selected_questions
+    returning id
+  )
+  select count(*)
+  into v_inserted_answer_count
+  from inserted_rows;
+
+  if coalesce(v_inserted_answer_count, 0) = 0 then
+    delete from public.exam_attempts
+    where id = v_attempt_id;
+
+    raise exception 'No published questions are available for this exam config.';
+  end if;
+
+  update public.exam_attempts
+  set
+    total_questions = v_inserted_answer_count,
+    unanswered_answers = v_inserted_answer_count,
+    updated_at = timezone('utc', now())
+  where id = v_attempt_id;
+
+  return jsonb_build_object(
+    'attempt_id', v_attempt_id,
+    'exam_slug', v_exam_slug
+  );
+end;
+$$;
+
+revoke execute on function public.start_published_exam_attempt(text) from public, anon;
+grant execute on function public.start_published_exam_attempt(text) to authenticated;
+
+-- Phase 43: multiple-choice exam question support
+
+alter table public.quiz_questions
+  drop constraint if exists quiz_questions_question_type_check;
+
+alter table public.quiz_questions
+  add constraint quiz_questions_question_type_check
+  check (question_type in ('single_choice', 'multiple_choice', 'drag_drop_categorize'));
+
+alter table public.exam_attempt_answers
+  drop constraint if exists exam_attempt_answers_question_type_snapshot_check;
+
+alter table public.exam_attempt_answers
+  add constraint exam_attempt_answers_question_type_snapshot_check
+  check (question_type_snapshot in ('single_choice', 'multiple_choice', 'drag_drop_categorize'));
 

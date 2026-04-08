@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   AdminFormError,
+  readBoolean,
   readDifficulty,
   readExpertiseList,
   readPlanInterval,
@@ -63,6 +64,24 @@ test("readExpertiseList trims comma-separated topics", () => {
     "OSPF",
     "Packet Tracer"
   ]);
+});
+
+test("readBoolean treats any checked checkbox value as true", () => {
+  const numericCheckbox = createFormData({
+    option2Correct: "2"
+  });
+  const defaultCheckbox = createFormData({
+    isPublished: "on"
+  });
+  const falseCheckbox = createFormData({
+    isPublished: "false"
+  });
+  const emptyForm = createFormData({});
+
+  assert.equal(readBoolean(numericCheckbox, "option2Correct"), true);
+  assert.equal(readBoolean(defaultCheckbox, "isPublished"), true);
+  assert.equal(readBoolean(falseCheckbox, "isPublished"), false);
+  assert.equal(readBoolean(emptyForm, "isPublished"), false);
 });
 
 test("readPlanInterval and readDifficulty only accept allowed values", () => {

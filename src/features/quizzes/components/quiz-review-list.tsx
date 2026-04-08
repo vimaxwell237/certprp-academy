@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/card";
+import { QuestionImageGallery } from "@/components/ui/question-image-gallery";
 import type { QuizAttemptResult } from "@/types/quiz";
 
 export function QuizReviewList({ result }: { result: QuizAttemptResult }) {
@@ -25,6 +26,21 @@ export function QuizReviewList({ result }: { result: QuizAttemptResult }) {
               {question.questionText}
             </h2>
           </div>
+
+          <QuestionImageGallery
+            images={[
+              {
+                src: question.questionImageUrl,
+                alt: question.questionImageAlt || "Question reference image 1",
+                key: `${question.id}-primary`
+              },
+              {
+                src: question.questionImageSecondaryUrl,
+                alt: question.questionImageSecondaryAlt || "Question reference image 2",
+                key: `${question.id}-secondary`
+              }
+            ]}
+          />
 
           <div className="space-y-3">
             {question.options.map((option) => {
@@ -56,4 +72,3 @@ export function QuizReviewList({ result }: { result: QuizAttemptResult }) {
     </div>
   );
 }
-

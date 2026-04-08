@@ -65,9 +65,9 @@ export default async function AdminQuizzesPage({
     <div className="space-y-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <AdminSectionHeader
-          description="Manage basic quiz metadata and keep quizzes in draft until their linked content is published."
+          description="Manage quiz shells and publish state here. Timed exam simulator questions are added from Exam Simulator Admin, where you can keep them exam-only instead of sending them to learner quizzes."
           eyebrow="Assessment"
-          title="Quizzes"
+          title="Quiz Shells"
         />
         <Link
           className="inline-flex rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:border-cyan/30 hover:text-cyan"
@@ -93,9 +93,14 @@ export default async function AdminQuizzesPage({
             {
               header: "Questions",
               cell: (record) => (
-                <span className="font-semibold text-ink">{record.questionCount}</span>
+                <div className="space-y-1">
+                  <p className="font-semibold text-ink">{record.questionCount}</p>
+                  <p className="text-xs text-slate">
+                    {record.quizVisibleQuestionCount} visible in quizzes
+                  </p>
+                </div>
               ),
-              className: "w-24"
+              className: "w-32"
             },
             {
               header: "State",
@@ -113,7 +118,19 @@ export default async function AdminQuizzesPage({
               className: "w-44"
             },
             {
-              header: "Edit",
+              header: "Exam Bank",
+              cell: (record) => (
+                <Link
+                  className="font-semibold text-cyan hover:text-teal"
+                  href={`${APP_ROUTES.adminExamSimulator}?quiz=${record.id}`}
+                >
+                  Open Bank
+                </Link>
+              ),
+              className: "w-28"
+            },
+            {
+              header: "Edit Shell",
               cell: (record) => (
                 <Link className="font-semibold text-cyan hover:text-teal" href={`?edit=${record.id}`}>
                   Edit
@@ -128,26 +145,38 @@ export default async function AdminQuizzesPage({
           title="Quiz Catalog"
         />
 
-        <AdminEntityForm
-          action={saveQuizAction}
-          fields={quizFields}
-          initialValues={
-            editingRecord
-              ? editingRecord
-              : {
-                  moduleId: "",
-                  lessonId: "",
-                  title: "",
-                  slug: "",
-                  description: "",
-                  isPublished: false
-                }
-          }
-          key={editingRecord?.id ?? "new-quiz"}
-          recordId={editingRecord?.id}
-          submitLabel={editingRecord ? "Update Quiz" : "Create Quiz"}
-          title={editingRecord ? "Edit Quiz" : "Create Quiz"}
-        />
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-dashed border-ink/10 bg-pearl px-5 py-4 text-sm text-slate">
+            Create or update the quiz shell here, then use
+            {" "}
+            <Link className="font-semibold text-cyan hover:text-teal" href={APP_ROUTES.adminExamSimulator}>
+              Exam Simulator Admin
+            </Link>
+            {" "}
+            to add timed exam-bank questions.
+          </div>
+
+          <AdminEntityForm
+            action={saveQuizAction}
+            fields={quizFields}
+            initialValues={
+              editingRecord
+                ? editingRecord
+                : {
+                    moduleId: "",
+                    lessonId: "",
+                    title: "",
+                    slug: "",
+                    description: "",
+                    isPublished: false
+                  }
+            }
+            key={editingRecord?.id ?? "new-quiz"}
+            recordId={editingRecord?.id}
+            submitLabel={editingRecord ? "Update Quiz Shell" : "Create Quiz Shell"}
+            title={editingRecord ? "Edit Quiz Shell" : "Create Quiz Shell"}
+          />
+        </div>
       </div>
     </div>
   );

@@ -15,12 +15,31 @@ function getErrorMessageText(error: unknown) {
   return null;
 }
 
+const sensitiveErrorPatterns = [
+  /service role/i,
+  /environment variables? .*not configured/i,
+  /api key/i,
+  /secret/i,
+  /token/i,
+  /credential/i
+];
+
+function shouldHidePublicErrorMessage(message: string) {
+  return sensitiveErrorPatterns.some((pattern) => pattern.test(message));
+}
+
 export function getPublicErrorMessage(error: unknown, fallback: string) {
   if (process.env.NODE_ENV === "production") {
     return fallback;
   }
 
-  return getErrorMessageText(error) ?? fallback;
+  const message = getErrorMessageText(error);
+
+  if (!message || shouldHidePublicErrorMessage(message)) {
+    return fallback;
+  }
+
+  return message;
 }
 
 export function getSafeAuthErrorMessage(

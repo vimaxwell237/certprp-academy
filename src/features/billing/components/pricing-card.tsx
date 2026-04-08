@@ -7,6 +7,13 @@ import {
 } from "@/features/billing/lib/access-control";
 import type { BillingAccessState, PricingPlanCardData } from "@/types/billing";
 
+function formatFeatureLabel(feature: string) {
+  return feature
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function PricingCard({
   plan,
   accessState,
@@ -41,7 +48,7 @@ export function PricingCard({
       <ul className="space-y-2 text-sm text-slate">
         {features.length > 0 ? (
           features.map(([feature]) => (
-            <li key={feature}>- {feature.replaceAll("_", " ")}</li>
+            <li key={feature}>- {formatFeatureLabel(feature)}</li>
           ))
         ) : (
           <li>- Lessons and limited preview content</li>

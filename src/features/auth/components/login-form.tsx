@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PasswordField } from "@/features/auth/components/password-field";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 import { getSafeAuthErrorMessage } from "@/lib/errors/public-error";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
@@ -90,18 +91,15 @@ export function LoginForm() {
           />
         </label>
 
-        <label className="block space-y-2">
-          <span className="text-sm font-semibold text-ink">Password</span>
-          <input
-            required
-            className="w-full rounded-2xl border border-mist bg-pearl px-4 py-3 text-base text-ink outline-none transition placeholder:text-slate/60 focus:border-cyan focus:bg-white"
-            maxLength={128}
-            minLength={6}
-            name="password"
-            placeholder="Enter your password"
-            type="password"
-          />
-        </label>
+        <PasswordField
+          autoComplete="current-password"
+          label="Password"
+          maxLength={128}
+          minLength={6}
+          name="password"
+          placeholder="Enter your password"
+          required
+        />
 
         {error ? (
           <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">

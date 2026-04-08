@@ -1,7 +1,18 @@
+import {
+  isDragDropAnswerComplete,
+  isDragDropAnswerCorrect
+} from "@/lib/questions/drag-drop";
+import {
+  isMultipleChoiceAnswered,
+  isMultipleChoiceCorrect
+} from "@/lib/questions/multiple-choice";
+import type { DragDropAnswerPayload, DragDropInteractionConfig, QuestionType } from "@/types/questions";
+
 export interface ExamBankOption {
   id: string;
   optionText: string;
   isCorrect: boolean;
+  matchKey: string | null;
   orderIndex: number;
 }
 
@@ -9,10 +20,16 @@ export interface ExamBankQuestion {
   id: string;
   moduleSlug: string | null;
   moduleTitle: string | null;
+  showInQuiz?: boolean;
   questionText: string;
   explanation: string;
   difficulty: "easy" | "medium" | "hard";
-  questionType: "single_choice";
+  questionType: QuestionType;
+  interactionConfig: DragDropInteractionConfig | null;
+  questionImagePath: string | null;
+  questionImageAlt: string;
+  questionImageSecondaryPath: string | null;
+  questionImageSecondaryAlt: string;
   options: ExamBankOption[];
 }
 
@@ -21,10 +38,18 @@ export interface ExamSelectionConfig {
   selectionStrategy: "random" | "balanced";
 }
 
-export interface ExamAnswerKey {
-  correctOptionId: string | null;
-  selectedOptionId: string | null;
-}
+export type ExamAnswerKey =
+  | {
+      questionType: "single_choice" | "multiple_choice";
+      correctOptionIds: string[];
+      selectedOptionIds: string[];
+    }
+  | {
+      questionType: "drag_drop_categorize";
+      answerPayload: DragDropAnswerPayload | null;
+      items: Array<{ id: string; matchKey: string | null }>;
+      bucketIds: string[];
+    };
 
 export interface ExamScoreSummary {
   totalQuestions: number;
@@ -49,18 +74,43 @@ function shuffleArray<T>(items: T[]) {
   return copy;
 }
 
+function getQuestionSelectionPriority(question: Pick<ExamBankQuestion, "questionType" | "showInQuiz">) {
+  let priority = 0;
+
+  if (question.showInQuiz === false) {
+    priority += 2;
+  }
+
+  if (question.questionType === "drag_drop_categorize") {
+    priority += 1;
+  }
+
+  return priority;
+}
+
+function prioritizeQuestions<T extends ExamBankQuestion>(questions: T[]) {
+  return shuffleArray(questions).sort(
+    (left, right) =>
+      getQuestionSelectionPriority(right) - getQuestionSelectionPriority(left)
+  );
+}
+
 function selectBalancedQuestions(
   questions: ExamBankQuestion[],
   questionCount: number
 ) {
   const byModule = new Map<string, ExamBankQuestion[]>();
 
-  for (const question of shuffleArray(questions)) {
+  for (const question of questions) {
     const moduleKey = question.moduleSlug ?? "unknown";
     const existing = byModule.get(moduleKey) ?? [];
 
     existing.push(question);
     byModule.set(moduleKey, existing);
+  }
+
+  for (const [moduleKey, moduleQuestions] of byModule.entries()) {
+    byModule.set(moduleKey, prioritizeQuestions(moduleQuestions));
   }
 
   const moduleKeys = shuffleArray(Array.from(byModule.keys()));
@@ -109,21 +159,15 @@ export function selectExamQuestions(
     return selectBalancedQuestions(uniqueQuestions, maxCount);
   }
 
-  return shuffleArray(uniqueQuestions).slice(0, maxCount);
+  return prioritizeQuestions(uniqueQuestions).slice(0, maxCount);
 }
 
 export function calculateExamScore(
   answers: Array<{ answer: ExamAnswerKey; flagged: boolean }>
 ): ExamScoreSummary {
   const totalQuestions = answers.length;
-  const correctAnswers = answers.filter(
-    ({ answer }) =>
-      answer.correctOptionId !== null &&
-      answer.selectedOptionId === answer.correctOptionId
-  ).length;
-  const unansweredCount = answers.filter(
-    ({ answer }) => answer.selectedOptionId === null
-  ).length;
+  const correctAnswers = answers.filter(({ answer }) => isExamAnswerCorrect(answer)).length;
+  const unansweredCount = answers.filter(({ answer }) => !isExamAnswerAnswered(answer)).length;
   const incorrectAnswers = totalQuestions - correctAnswers - unansweredCount;
   const flaggedCount = answers.filter(({ flagged }) => flagged).length;
   const score =
@@ -137,6 +181,26 @@ export function calculateExamScore(
     flaggedCount,
     score
   };
+}
+
+export function isExamAnswerAnswered(answer: ExamAnswerKey) {
+  if (answer.questionType === "drag_drop_categorize") {
+    return isDragDropAnswerComplete(
+      answer.items.map((item) => item.id),
+      answer.bucketIds,
+      answer.answerPayload
+    );
+  }
+
+  return isMultipleChoiceAnswered(answer.selectedOptionIds);
+}
+
+export function isExamAnswerCorrect(answer: ExamAnswerKey) {
+  if (answer.questionType === "drag_drop_categorize") {
+    return isDragDropAnswerCorrect(answer.items, answer.bucketIds, answer.answerPayload);
+  }
+
+  return isMultipleChoiceCorrect(answer.correctOptionIds, answer.selectedOptionIds);
 }
 
 export function clampTimeUsed(startedAt: string, endedAt: string, durationSeconds: number) {

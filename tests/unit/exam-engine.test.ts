@@ -18,6 +18,11 @@ test("balanced selection spreads questions across modules when possible", () => 
         explanation: "",
         difficulty: "easy",
         questionType: "single_choice",
+        interactionConfig: null,
+        questionImagePath: null,
+        questionImageAlt: "",
+        questionImageSecondaryPath: null,
+        questionImageSecondaryAlt: "",
         options: []
       },
       {
@@ -28,6 +33,11 @@ test("balanced selection spreads questions across modules when possible", () => 
         explanation: "",
         difficulty: "easy",
         questionType: "single_choice",
+        interactionConfig: null,
+        questionImagePath: null,
+        questionImageAlt: "",
+        questionImageSecondaryPath: null,
+        questionImageSecondaryAlt: "",
         options: []
       },
       {
@@ -38,6 +48,11 @@ test("balanced selection spreads questions across modules when possible", () => 
         explanation: "",
         difficulty: "easy",
         questionType: "single_choice",
+        interactionConfig: null,
+        questionImagePath: null,
+        questionImageAlt: "",
+        questionImageSecondaryPath: null,
+        questionImageSecondaryAlt: "",
         options: []
       },
       {
@@ -48,6 +63,11 @@ test("balanced selection spreads questions across modules when possible", () => 
         explanation: "",
         difficulty: "easy",
         questionType: "single_choice",
+        interactionConfig: null,
+        questionImagePath: null,
+        questionImageAlt: "",
+        questionImageSecondaryPath: null,
+        questionImageSecondaryAlt: "",
         options: []
       }
     ],
@@ -65,26 +85,80 @@ test("balanced selection spreads questions across modules when possible", () => 
   );
 });
 
+test("random selection prioritizes exam-only drag-and-drop questions", () => {
+  const selected = selectExamQuestions(
+    [
+      {
+        id: "q1",
+        moduleSlug: "network-fundamentals",
+        moduleTitle: "Network Fundamentals",
+        showInQuiz: true,
+        questionText: "Q1",
+        explanation: "",
+        difficulty: "easy",
+        questionType: "single_choice",
+        interactionConfig: null,
+        questionImagePath: null,
+        questionImageAlt: "",
+        questionImageSecondaryPath: null,
+        questionImageSecondaryAlt: "",
+        options: []
+      },
+      {
+        id: "q2",
+        moduleSlug: "network-access",
+        moduleTitle: "Network Access",
+        showInQuiz: false,
+        questionText: "Q2",
+        explanation: "",
+        difficulty: "medium",
+        questionType: "drag_drop_categorize",
+        interactionConfig: {
+          buckets: [
+            { id: "bucket-a", label: "Bucket A" },
+            { id: "bucket-b", label: "Bucket B" }
+          ]
+        },
+        questionImagePath: null,
+        questionImageAlt: "",
+        questionImageSecondaryPath: null,
+        questionImageSecondaryAlt: "",
+        options: []
+      }
+    ],
+    {
+      questionCount: 1,
+      selectionStrategy: "random"
+    }
+  );
+
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0]?.id, "q2");
+});
+
 test("exam scoring tracks correct, incorrect, unanswered, and flagged counts", () => {
   const summary = calculateExamScore([
     {
       answer: {
-        correctOptionId: "a",
-        selectedOptionId: "a"
+        questionType: "single_choice",
+        correctOptionIds: ["a"],
+        selectedOptionIds: ["a"]
       },
       flagged: false
     },
     {
       answer: {
-        correctOptionId: "b",
-        selectedOptionId: "c"
+        questionType: "single_choice",
+        correctOptionIds: ["b"],
+        selectedOptionIds: ["c"]
       },
       flagged: true
     },
     {
       answer: {
-        correctOptionId: "d",
-        selectedOptionId: null
+        questionType: "single_choice",
+        correctOptionIds: ["d"],
+        selectedOptionIds: []
       },
       flagged: true
     }
@@ -97,6 +171,55 @@ test("exam scoring tracks correct, incorrect, unanswered, and flagged counts", (
     unansweredCount: 1,
     flaggedCount: 2,
     score: 33
+  });
+});
+
+test("drag-and-drop questions score only when every item is placed correctly", () => {
+  const summary = calculateExamScore([
+    {
+      answer: {
+        questionType: "drag_drop_categorize",
+        answerPayload: {
+          placements: {
+            "item-1": "ftp",
+            "item-2": "ftp",
+            "item-3": "tftp"
+          }
+        },
+        items: [
+          { id: "item-1", matchKey: "ftp" },
+          { id: "item-2", matchKey: "ftp" },
+          { id: "item-3", matchKey: "tftp" }
+        ],
+        bucketIds: ["ftp", "tftp"]
+      },
+      flagged: false
+    },
+    {
+      answer: {
+        questionType: "drag_drop_categorize",
+        answerPayload: {
+          placements: {
+            "item-4": "ftp"
+          }
+        },
+        items: [
+          { id: "item-4", matchKey: "ftp" },
+          { id: "item-5", matchKey: "tftp" }
+        ],
+        bucketIds: ["ftp", "tftp"]
+      },
+      flagged: false
+    }
+  ]);
+
+  assert.deepEqual(summary, {
+    totalQuestions: 2,
+    correctAnswers: 1,
+    incorrectAnswers: 0,
+    unansweredCount: 1,
+    flaggedCount: 0,
+    score: 50
   });
 });
 

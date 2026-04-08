@@ -5,7 +5,6 @@ import { QuizReviewList } from "@/features/quizzes/components/quiz-review-list";
 import { fetchQuizAttemptResult } from "@/features/quizzes/data/quiz-service";
 import { ContextualSupportCta } from "@/features/support/components/contextual-support-cta";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
 
 export default async function QuizResultsPage({
@@ -42,10 +41,7 @@ export default async function QuizResultsPage({
       </section>
     );
   } catch (error) {
-    const message = getPublicPageErrorMessage(
-      error,
-      "Quiz results could not be loaded right now."
-    );
+    console.error("[QuizResultsPage]", error);
 
     return (
       <section className="w-full max-w-5xl space-y-6 pb-12">
@@ -54,7 +50,6 @@ export default async function QuizResultsPage({
           <p className="mt-2 text-sm">
             Refresh the page or verify that the quiz attempt belongs to the signed-in user.
           </p>
-          <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs">{message}</p>
         </div>
       </section>
     );

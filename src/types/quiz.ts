@@ -27,6 +27,10 @@ export interface QuizDetailQuestion {
   orderIndex: number;
   questionType: "single_choice";
   difficulty: "easy" | "medium" | "hard";
+  questionImageUrl: string | null;
+  questionImageAlt: string;
+  questionImageSecondaryUrl: string | null;
+  questionImageSecondaryAlt: string;
   options: QuizDetailQuestionOption[];
 }
 
@@ -69,6 +73,10 @@ export interface QuizResultReviewQuestion {
   questionText: string;
   explanation: string;
   difficulty: "easy" | "medium" | "hard";
+  questionImageUrl: string | null;
+  questionImageAlt: string;
+  questionImageSecondaryUrl: string | null;
+  questionImageSecondaryAlt: string;
   isCorrect: boolean;
   selectedOptionId: string | null;
   correctOptionId: string | null;
@@ -112,4 +120,3 @@ export interface DashboardQuizSnapshot {
     label: string;
   } | null;
 }
-

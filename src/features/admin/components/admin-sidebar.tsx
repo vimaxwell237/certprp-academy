@@ -14,6 +14,7 @@ const adminLinks = [
   { href: APP_ROUTES.adminModules, label: "Modules" },
   { href: APP_ROUTES.adminLessons, label: "Lessons" },
   { href: APP_ROUTES.adminQuizzes, label: "Quizzes" },
+  { href: APP_ROUTES.adminExamSimulator, label: "Exam Simulator" },
   { href: APP_ROUTES.adminLabs, label: "Labs" },
   { href: APP_ROUTES.adminCliChallenges, label: "CLI Challenges" },
   { href: APP_ROUTES.adminTutors, label: "Tutors" },

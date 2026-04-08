@@ -1,5 +1,6 @@
 import type { AdminActionState } from "@/types/admin";
 import type { PlanInterval } from "@/types/billing";
+import type { QuestionType } from "@/types/questions";
 
 export class AdminFormError extends Error {
   fieldErrors: Record<string, string>;
@@ -38,6 +39,16 @@ export function readOptionalText(formData: FormData, name: string) {
   return value || "";
 }
 
+export function readOptionalFile(formData: FormData, name: string) {
+  const value = formData.get(name);
+
+  if (!(value instanceof File) || value.size === 0) {
+    return null;
+  }
+
+  return value;
+}
+
 export function readOptionalUrl(formData: FormData, name: string) {
   const value = normalizeText(formData.get(name));
 
@@ -71,7 +82,19 @@ export function readOptionalId(formData: FormData, name: string) {
 }
 
 export function readBoolean(formData: FormData, name: string) {
-  return formData.get(name) === "on";
+  const value = formData.get(name);
+
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return !["0", "false", "off", "no"].includes(normalized);
 }
 
 export function readPositiveInteger(formData: FormData, name: string, label: string) {
@@ -153,6 +176,18 @@ export function readDifficulty(formData: FormData, name = "difficulty") {
   }
 
   return value as "beginner" | "intermediate" | "advanced";
+}
+
+export function readQuestionType(formData: FormData, name = "questionType"): QuestionType {
+  const value = readRequiredText(formData, name, "Question type");
+
+  if (!["single_choice", "multiple_choice", "drag_drop_categorize"].includes(value)) {
+    throw new AdminFormError("Question type is invalid.", {
+      [name]: "Choose a supported question type."
+    });
+  }
+
+  return value as QuestionType;
 }
 
 export function toActionErrorState(error: unknown): AdminActionState {

@@ -22,6 +22,7 @@ export async function startExamAttempt(formData: FormData) {
   }
 
   const examSlug = String(formData.get("examSlug") ?? "");
+  const forceRestart = String(formData.get("forceRestart") ?? "") === "true";
 
   if (!examSlug) {
     throw new Error("Exam slug is required.");
@@ -31,7 +32,9 @@ export async function startExamAttempt(formData: FormData) {
     redirect(APP_ROUTES.pricing);
   }
 
-  const attempt = await createExamAttemptForUser(user.id, examSlug);
+  const attempt = await createExamAttemptForUser(user.id, examSlug, {
+    forceRestart
+  });
 
   redirect(`/exam-simulator/${attempt.examSlug}/attempt/${attempt.attemptId}`);
 }
@@ -39,7 +42,9 @@ export async function startExamAttempt(formData: FormData) {
 export async function saveExamAnswerAction(input: {
   attemptId: string;
   questionId: string;
-  selectedOptionId: string;
+  selectedOptionId?: string | null;
+  selectedOptionIds?: string[];
+  answerPayload?: { placements: Record<string, string> } | null;
   currentQuestionIndex?: number;
 }) {
   const user = await getCurrentUser();
@@ -51,13 +56,7 @@ export async function saveExamAnswerAction(input: {
     };
   }
 
-  return saveExamAttemptAnswer(
-    user.id,
-    input.attemptId,
-    input.questionId,
-    input.selectedOptionId,
-    input.currentQuestionIndex
-  );
+  return saveExamAttemptAnswer(user.id, input.attemptId, input.questionId, input);
 }
 
 export async function saveExamFlagAction(input: {

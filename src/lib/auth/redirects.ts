@@ -62,6 +62,7 @@ export const APP_ROUTES = {
   adminModules: "/admin/modules",
   adminLessons: "/admin/lessons",
   adminQuizzes: "/admin/quizzes",
+  adminExamSimulator: "/admin/exam-simulator",
   adminLabs: "/admin/labs",
   adminCliChallenges: "/admin/cli-challenges",
   adminTutors: "/admin/tutors",

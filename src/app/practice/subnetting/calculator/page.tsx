@@ -68,6 +68,7 @@ export default async function SubnettingCalculatorPage() {
       <AskAiTutorCta
         description="Ask the AI tutor to explain the interesting octet, block size, or why an address falls into a specific subnet range."
         lessonContext="Subnetting visual calculator"
+        preferLiveChat
         question="Can you explain how the interesting octet and block size work in subnetting?"
         source="subnetting-calculator"
         title="Want a spoken-style explanation too?"

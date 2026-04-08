@@ -10,7 +10,6 @@ import { startExamAttempt } from "@/features/exams/actions/exam-attempt-actions"
 import { ExamHistoryList } from "@/features/exams/components/exam-history-list";
 import { fetchExamConfigDetail } from "@/features/exams/data/exam-service";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
 
 const examModeLabels = {
@@ -58,6 +57,8 @@ export default async function ExamDetailPage({
       notFound();
     }
 
+    const hasActiveAttempt = Boolean(exam.activeAttemptId);
+
     return (
       <section className="w-full max-w-5xl space-y-6 pb-12 sm:space-y-8">
         <div className="space-y-4 rounded-[1.5rem] border border-white/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(14,116,144,0.92))] px-4 py-6 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-8 lg:px-10">
@@ -101,15 +102,38 @@ export default async function ExamDetailPage({
             </div>
           </div>
 
-          <form action={startExamAttempt}>
-            <input name="examSlug" type="hidden" value={exam.slug} />
-            <button
-              className="inline-flex rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-ink transition hover:-translate-y-0.5 hover:bg-sand"
-              type="submit"
-            >
-              Start Timed Exam
-            </button>
-          </form>
+          {hasActiveAttempt ? (
+            <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 text-sm text-slate-100">
+              An exam attempt is already in progress for this mode. Resume it to keep the same
+              question set, or start fresh to time out the old attempt and load newly added exam
+              questions.
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-3">
+            <form action={startExamAttempt}>
+              <input name="examSlug" type="hidden" value={exam.slug} />
+              <button
+                className="inline-flex rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-ink transition hover:-translate-y-0.5 hover:bg-sand"
+                type="submit"
+              >
+                {hasActiveAttempt ? "Resume Active Exam" : "Start Timed Exam"}
+              </button>
+            </form>
+
+            {hasActiveAttempt ? (
+              <form action={startExamAttempt}>
+                <input name="examSlug" type="hidden" value={exam.slug} />
+                <input name="forceRestart" type="hidden" value="true" />
+                <button
+                  className="inline-flex rounded-full border border-white/25 bg-white/10 px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/20"
+                  type="submit"
+                >
+                  Start Fresh Exam
+                </button>
+              </form>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
@@ -119,8 +143,9 @@ export default async function ExamDetailPage({
             </p>
             <ul className="mt-4 space-y-3 text-sm text-slate">
               <li>Questions are randomized from the current CCNA question bank.</li>
+              <li>New exam-only drag-and-drop questions are prioritized on fresh attempts.</li>
               <li>Answers and flags save while you move through the exam.</li>
-              <li>Refreshing the page restores the same active attempt state.</li>
+              <li>Starting this mode again resumes the same in-progress attempt unless you start fresh.</li>
               <li>The exam auto-submits when the timer reaches zero.</li>
               <li>Results include score, unanswered items, and domain breakdown.</li>
             </ul>
@@ -153,10 +178,7 @@ export default async function ExamDetailPage({
       </section>
     );
   } catch (error) {
-    const message = getPublicPageErrorMessage(
-      error,
-      "Exam mode data could not be loaded right now."
-    );
+    console.error("[ExamDetailPage]", error);
 
     return (
       <section className="w-full max-w-5xl space-y-6 pb-12">
@@ -169,9 +191,8 @@ export default async function ExamDetailPage({
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           <p className="font-semibold">Unable to load this exam mode.</p>
           <p className="mt-2 text-sm">
-            Confirm the Phase 4 exam migration and seed SQL has been executed in Supabase.
+            This exam mode is temporarily unavailable. Please go back and try again.
           </p>
-          <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs">{message}</p>
         </div>
       </section>
     );

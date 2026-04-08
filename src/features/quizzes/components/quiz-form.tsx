@@ -1,3 +1,4 @@
+import { QuestionImageGallery } from "@/components/ui/question-image-gallery";
 import { submitQuizAttempt } from "@/features/quizzes/actions/submit-quiz-attempt";
 import { QuizProgressBar } from "@/features/quizzes/components/quiz-progress-bar";
 import { QuizSubmitButton } from "@/features/quizzes/components/quiz-submit-button";
@@ -27,6 +28,21 @@ export function QuizForm({ quiz }: { quiz: QuizDetail }) {
             </div>
           </div>
 
+          <QuestionImageGallery
+            images={[
+              {
+                src: question.questionImageUrl,
+                alt: question.questionImageAlt || "Question reference image 1",
+                key: `${question.id}-primary`
+              },
+              {
+                src: question.questionImageSecondaryUrl,
+                alt: question.questionImageSecondaryAlt || "Question reference image 2",
+                key: `${question.id}-secondary`
+              }
+            ]}
+          />
+
           <div className="space-y-3">
             {question.options.map((option) => (
               <label
@@ -53,4 +69,3 @@ export function QuizForm({ quiz }: { quiz: QuizDetail }) {
     </form>
   );
 }
-

@@ -1,4 +1,8 @@
-import { createServiceRoleSupabaseClient } from "@/lib/supabase/admin";
+import {
+  createServiceRoleSupabaseClient,
+  isMissingServiceRoleConfigError
+} from "@/lib/supabase/admin";
+import { getPublicErrorMessage } from "@/lib/errors/public-error";
 import {
   assignOperatorHandles,
   DEFAULT_DELIVERY_FILTERS,
@@ -358,8 +362,19 @@ const DELIVERY_SELECT =
 const JOB_SELECT =
   "id,user_id,job_type,related_entity_type,related_entity_id,status,retry_count,max_retries,scheduled_for,processed_at,error_message,last_attempted_at,created_at,assigned_admin_user_id,assigned_at,handoff_note,workflow_state,workflow_state_updated_at,is_escalated,escalated_at,escalated_by_admin_user_id,escalation_reason,dedupe_key,payload,processing_started_at";
 
+const OPERATIONS_ADMIN_UNAVAILABLE_WARNING =
+  "Operations admin tools are unavailable in this environment. Queue reads and automation controls are temporarily disabled.";
+
 function getOperationsClient() {
   return createServiceRoleSupabaseClient();
+}
+
+function shouldUseOperationsReadFallback(error: unknown) {
+  return isMissingServiceRoleConfigError(error);
+}
+
+function getOperationsReadWarning(error: unknown) {
+  return getPublicErrorMessage(error, OPERATIONS_ADMIN_UNAVAILABLE_WARNING);
 }
 
 function isProcessingLocked(processingStartedAt: string | null | undefined) {
@@ -452,6 +467,44 @@ function getEmptySummary(): AdminOperationsSnapshot["summary"] {
     verificationFailedAutomation: 0,
     dismissedReminderAutomation: 0,
     snoozedReminderAutomation: 0
+  };
+}
+
+function getEmptyOverview(
+  summary: AdminOperationsSnapshot["summary"],
+  warning: string | null
+): AdminOperationsOverview {
+  return {
+    summary,
+    recentDeliveries: [],
+    recentJobs: [],
+    recentActions: [],
+    topFailureCategories: [],
+    myAssignedDeliveries: [],
+    myAssignedJobs: [],
+    recentlyHandedOffDeliveries: [],
+    recentlyHandedOffJobs: [],
+    watchedDeliveries: [],
+    watchedJobs: [],
+    escalatedDeliveries: [],
+    escalatedJobs: [],
+    subscribedDeliveryViews: [],
+    subscribedJobViews: [],
+    escalationDeliveryRules: [],
+    escalationJobRules: [],
+    recentEscalationRuleRuns: [],
+    recentSubscriptionDigestRuns: [],
+    topSkipReasons: [],
+    topFailureReasons: [],
+    unhealthyAutomationRules: [],
+    unhealthyAutomationSubscriptions: [],
+    needingAcknowledgementRules: [],
+    needingAcknowledgementSubscriptions: [],
+    overdueFollowUpRules: [],
+    overdueFollowUpSubscriptions: [],
+    defaultDeliveryView: null,
+    defaultJobView: null,
+    warning
   };
 }
 
@@ -582,29 +635,39 @@ async function assertAdminActor(userId: string) {
 }
 
 export async function fetchAdminOperators(adminUserId?: string): Promise<AdminOperatorOption[]> {
-  if (adminUserId) {
-    await assertAdminActor(adminUserId);
+  try {
+    if (adminUserId) {
+      await assertAdminActor(adminUserId);
+    }
+
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("user_roles")
+      .select("user_id")
+      .eq("role", "admin");
+
+    if (error) {
+      throw new Error(`Failed to load admin operators: ${error.message}`);
+    }
+
+    const userIds = (((data as Array<{ user_id: string }> | null) ?? []).map(
+      (row) => row.user_id
+    ));
+    const labelMap = await fetchAdminUserLabelMap(userIds);
+
+    return assignOperatorHandles(
+      userIds.map((userId) => ({
+        userId,
+        label: labelMap.get(userId) ?? userId
+      }))
+    );
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return [];
+    }
+
+    throw error;
   }
-
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("user_roles")
-    .select("user_id")
-    .eq("role", "admin");
-
-  if (error) {
-    throw new Error(`Failed to load admin operators: ${error.message}`);
-  }
-
-  const userIds = (((data as Array<{ user_id: string }> | null) ?? []).map((row) => row.user_id));
-  const labelMap = await fetchAdminUserLabelMap(userIds);
-
-  return assignOperatorHandles(
-    userIds.map((userId) => ({
-      userId,
-      label: labelMap.get(userId) ?? userId
-    }))
-  );
 }
 
 function applyDeliveryOrdering(query: any, sort: AdminDeliveryFilters["sort"]) {
@@ -1348,80 +1411,96 @@ export async function listOperationQueueSubscriptions(
   adminUserId: string,
   entityType: OperationEntityType
 ): Promise<OperationQueueSubscriptionRecord[]> {
-  await assertAdminActor(adminUserId);
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("operation_queue_subscriptions")
-    .select(
-      "id,admin_user_id,entity_type,name,filters_json,is_active,is_muted,snoozed_until,muted_or_snoozed_reason,digest_cooldown_minutes,last_digest_at,last_digest_hash,consecutive_skip_count,consecutive_failure_count,last_success_at,last_failure_at,last_skip_reason,created_at,updated_at"
-    )
-    .eq("admin_user_id", adminUserId)
-    .eq("entity_type", entityType)
-    .order("is_active", { ascending: false })
-    .order("updated_at", { ascending: false });
+  try {
+    await assertAdminActor(adminUserId);
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("operation_queue_subscriptions")
+      .select(
+        "id,admin_user_id,entity_type,name,filters_json,is_active,is_muted,snoozed_until,muted_or_snoozed_reason,digest_cooldown_minutes,last_digest_at,last_digest_hash,consecutive_skip_count,consecutive_failure_count,last_success_at,last_failure_at,last_skip_reason,created_at,updated_at"
+      )
+      .eq("admin_user_id", adminUserId)
+      .eq("entity_type", entityType)
+      .order("is_active", { ascending: false })
+      .order("updated_at", { ascending: false });
 
-  if (error) {
-    throw new Error(`Failed to load queue subscriptions: ${error.message}`);
+    if (error) {
+      throw new Error(`Failed to load queue subscriptions: ${error.message}`);
+    }
+
+    const rows = (data as OperationQueueSubscriptionRow[] | null) ?? [];
+    const records = rows.map((row) => mapQueueSubscriptionRow(row));
+    const stats = await Promise.all(
+      records.map(async (record) => {
+        const matches =
+          entityType === "notification_delivery"
+            ? await listAdminDeliveries(record.filters as AdminDeliveryFilters, 200, adminUserId)
+            : await listAdminJobs(record.filters as AdminJobFilters, 200, adminUserId);
+
+        return {
+          id: record.id,
+          ...summarizeMatchedIncidents(matches)
+        };
+      })
+    );
+    const statsMap = new Map(stats.map((entry) => [entry.id, entry]));
+
+    return rows.map((row) => mapQueueSubscriptionRow(row, statsMap.get(row.id)));
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return [];
+    }
+
+    throw error;
   }
-
-  const rows = (data as OperationQueueSubscriptionRow[] | null) ?? [];
-  const records = rows.map((row) => mapQueueSubscriptionRow(row));
-  const stats = await Promise.all(
-    records.map(async (record) => {
-      const matches =
-        entityType === "notification_delivery"
-          ? await listAdminDeliveries(record.filters as AdminDeliveryFilters, 200, adminUserId)
-          : await listAdminJobs(record.filters as AdminJobFilters, 200, adminUserId);
-
-      return {
-        id: record.id,
-        ...summarizeMatchedIncidents(matches)
-      };
-    })
-  );
-  const statsMap = new Map(stats.map((entry) => [entry.id, entry]));
-
-  return rows.map((row) => mapQueueSubscriptionRow(row, statsMap.get(row.id)));
 }
 
 export async function listOperationEscalationRules(
   adminUserId: string,
   entityType: OperationEntityType
 ): Promise<OperationEscalationRuleRecord[]> {
-  await assertAdminActor(adminUserId);
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("operation_escalation_rules")
-    .select(
-      "id,created_by_admin_user_id,entity_type,name,filters_json,escalation_reason,is_active,is_muted,snoozed_until,muted_or_snoozed_reason,run_mode,last_run_at,next_run_at,cooldown_minutes,max_matches_per_run,consecutive_skip_count,consecutive_failure_count,last_success_at,last_failure_at,last_skip_reason,created_at,updated_at"
-    )
-    .eq("created_by_admin_user_id", adminUserId)
-    .eq("entity_type", entityType)
-    .order("is_active", { ascending: false })
-    .order("updated_at", { ascending: false });
+  try {
+    await assertAdminActor(adminUserId);
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("operation_escalation_rules")
+      .select(
+        "id,created_by_admin_user_id,entity_type,name,filters_json,escalation_reason,is_active,is_muted,snoozed_until,muted_or_snoozed_reason,run_mode,last_run_at,next_run_at,cooldown_minutes,max_matches_per_run,consecutive_skip_count,consecutive_failure_count,last_success_at,last_failure_at,last_skip_reason,created_at,updated_at"
+      )
+      .eq("created_by_admin_user_id", adminUserId)
+      .eq("entity_type", entityType)
+      .order("is_active", { ascending: false })
+      .order("updated_at", { ascending: false });
 
-  if (error) {
-    throw new Error(`Failed to load escalation rules: ${error.message}`);
+    if (error) {
+      throw new Error(`Failed to load escalation rules: ${error.message}`);
+    }
+
+    const rows = (data as OperationEscalationRuleRow[] | null) ?? [];
+    const records = rows.map((row) => mapEscalationRuleRow(row));
+    const matchCounts = await Promise.all(
+      records.map(async (record) => {
+        const matches =
+          entityType === "notification_delivery"
+            ? await listAdminDeliveries(record.filters as AdminDeliveryFilters, 200, adminUserId)
+            : await listAdminJobs(record.filters as AdminJobFilters, 200, adminUserId);
+
+        return {
+          id: record.id,
+          count: matches.length
+        };
+      })
+    );
+    const countMap = new Map(matchCounts.map((entry) => [entry.id, entry.count]));
+
+    return rows.map((row) => mapEscalationRuleRow(row, countMap.get(row.id) ?? 0));
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return [];
+    }
+
+    throw error;
   }
-
-  const rows = (data as OperationEscalationRuleRow[] | null) ?? [];
-  const records = rows.map((row) => mapEscalationRuleRow(row));
-  const matchCounts = await Promise.all(
-    records.map(async (record) => {
-      const matches =
-        entityType === "notification_delivery"
-          ? await listAdminDeliveries(record.filters as AdminDeliveryFilters, 200, adminUserId)
-          : await listAdminJobs(record.filters as AdminJobFilters, 200, adminUserId);
-
-      return {
-        id: record.id,
-        count: matches.length
-      };
-    })
-  );
-  const countMap = new Map(matchCounts.map((entry) => [entry.id, entry.count]));
-
-  return rows.map((row) => mapEscalationRuleRow(row, countMap.get(row.id) ?? 0));
 }
 
 export async function listOperationEscalationRuleRuns(
@@ -1429,46 +1508,56 @@ export async function listOperationEscalationRuleRuns(
   entityType?: OperationEntityType,
   limit = 10
 ): Promise<OperationEscalationRuleRunRecord[]> {
-  await assertAdminActor(adminUserId);
-  const client = getOperationsClient();
-  let rulesQuery = client
-    .from("operation_escalation_rules")
-    .select("id,entity_type")
-    .eq("created_by_admin_user_id", adminUserId);
+  try {
+    await assertAdminActor(adminUserId);
+    const client = getOperationsClient();
+    let rulesQuery = client
+      .from("operation_escalation_rules")
+      .select("id,entity_type")
+      .eq("created_by_admin_user_id", adminUserId);
 
-  if (entityType) {
-    rulesQuery = rulesQuery.eq("entity_type", entityType);
+    if (entityType) {
+      rulesQuery = rulesQuery.eq("entity_type", entityType);
+    }
+
+    const { data: rules, error: rulesError } = await rulesQuery;
+
+    if (rulesError) {
+      throw new Error(`Failed to load escalation rules for run history: ${rulesError.message}`);
+    }
+
+    const ruleIds = ((rules as Array<{ id: string }> | null) ?? []).map((rule) => rule.id);
+
+    if (ruleIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await client
+      .from("operation_escalation_rule_runs")
+      .select(
+        "id,operation_escalation_rule_id,triggered_by,triggered_by_admin_user_id,matched_count,escalated_count,skipped_count,run_status,skip_reason,failure_reason,duration_ms,run_summary,created_at"
+      )
+      .in("operation_escalation_rule_id", ruleIds)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      throw new Error(`Failed to load escalation rule runs: ${error.message}`);
+    }
+
+    const rows = (data as OperationEscalationRuleRunRow[] | null) ?? [];
+    const labelMap = await fetchAdminUserLabelMap(
+      rows.map((row) => row.triggered_by_admin_user_id)
+    );
+
+    return rows.map((row) => mapEscalationRuleRunRow(row, labelMap));
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return [];
+    }
+
+    throw error;
   }
-
-  const { data: rules, error: rulesError } = await rulesQuery;
-
-  if (rulesError) {
-    throw new Error(`Failed to load escalation rules for run history: ${rulesError.message}`);
-  }
-
-  const ruleIds = ((rules as Array<{ id: string }> | null) ?? []).map((rule) => rule.id);
-
-  if (ruleIds.length === 0) {
-    return [];
-  }
-
-  const { data, error } = await client
-    .from("operation_escalation_rule_runs")
-    .select(
-      "id,operation_escalation_rule_id,triggered_by,triggered_by_admin_user_id,matched_count,escalated_count,skipped_count,run_status,skip_reason,failure_reason,duration_ms,run_summary,created_at"
-    )
-    .in("operation_escalation_rule_id", ruleIds)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    throw new Error(`Failed to load escalation rule runs: ${error.message}`);
-  }
-
-  const rows = (data as OperationEscalationRuleRunRow[] | null) ?? [];
-  const labelMap = await fetchAdminUserLabelMap(rows.map((row) => row.triggered_by_admin_user_id));
-
-  return rows.map((row) => mapEscalationRuleRunRow(row, labelMap));
 }
 
 export async function listOperationSubscriptionDigestRuns(
@@ -1476,48 +1565,58 @@ export async function listOperationSubscriptionDigestRuns(
   entityType?: OperationEntityType,
   limit = 10
 ): Promise<OperationSubscriptionDigestRunRecord[]> {
-  await assertAdminActor(adminUserId);
-  const client = getOperationsClient();
-  let subscriptionQuery = client
-    .from("operation_queue_subscriptions")
-    .select("id,entity_type")
-    .eq("admin_user_id", adminUserId);
+  try {
+    await assertAdminActor(adminUserId);
+    const client = getOperationsClient();
+    let subscriptionQuery = client
+      .from("operation_queue_subscriptions")
+      .select("id,entity_type")
+      .eq("admin_user_id", adminUserId);
 
-  if (entityType) {
-    subscriptionQuery = subscriptionQuery.eq("entity_type", entityType);
-  }
+    if (entityType) {
+      subscriptionQuery = subscriptionQuery.eq("entity_type", entityType);
+    }
 
-  const { data: subscriptions, error: subscriptionsError } = await subscriptionQuery;
+    const { data: subscriptions, error: subscriptionsError } = await subscriptionQuery;
 
-  if (subscriptionsError) {
-    throw new Error(
-      `Failed to load queue subscriptions for digest history: ${subscriptionsError.message}`
+    if (subscriptionsError) {
+      throw new Error(
+        `Failed to load queue subscriptions for digest history: ${subscriptionsError.message}`
+      );
+    }
+
+    const subscriptionIds = ((subscriptions as Array<{ id: string }> | null) ?? []).map(
+      (subscription) => subscription.id
     );
+
+    if (subscriptionIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await client
+      .from("operation_subscription_digest_runs")
+      .select("id,operation_queue_subscription_id,triggered_by,triggered_by_admin_user_id,match_count,run_status,skip_reason,failure_reason,duration_ms,digest_summary,delivered_via,created_at")
+      .in("operation_queue_subscription_id", subscriptionIds)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      throw new Error(`Failed to load subscription digest runs: ${error.message}`);
+    }
+
+    const rows = (data as OperationSubscriptionDigestRunRow[] | null) ?? [];
+    const labelMap = await fetchAdminUserLabelMap(
+      rows.map((row) => row.triggered_by_admin_user_id)
+    );
+
+    return rows.map((row) => mapSubscriptionDigestRunRow(row, labelMap));
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return [];
+    }
+
+    throw error;
   }
-
-  const subscriptionIds = ((subscriptions as Array<{ id: string }> | null) ?? []).map(
-    (subscription) => subscription.id
-  );
-
-  if (subscriptionIds.length === 0) {
-    return [];
-  }
-
-  const { data, error } = await client
-    .from("operation_subscription_digest_runs")
-    .select("id,operation_queue_subscription_id,triggered_by,triggered_by_admin_user_id,match_count,run_status,skip_reason,failure_reason,duration_ms,digest_summary,delivered_via,created_at")
-    .in("operation_queue_subscription_id", subscriptionIds)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    throw new Error(`Failed to load subscription digest runs: ${error.message}`);
-  }
-
-  const rows = (data as OperationSubscriptionDigestRunRow[] | null) ?? [];
-  const labelMap = await fetchAdminUserLabelMap(rows.map((row) => row.triggered_by_admin_user_id));
-
-  return rows.map((row) => mapSubscriptionDigestRunRow(row, labelMap));
 }
 
 async function assertAutomationEntityExists(
@@ -1857,162 +1956,178 @@ export async function fetchOperationEscalationRuleDetail(
   ruleId: string,
   adminUserId: string
 ): Promise<OperationEscalationRuleDetail | null> {
-  await assertAdminActor(adminUserId);
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("operation_escalation_rules")
-    .select(
-      "id,created_by_admin_user_id,entity_type,name,filters_json,escalation_reason,is_active,is_muted,snoozed_until,muted_or_snoozed_reason,run_mode,last_run_at,next_run_at,cooldown_minutes,max_matches_per_run,consecutive_skip_count,consecutive_failure_count,last_success_at,last_failure_at,last_skip_reason,created_at,updated_at"
-    )
-    .eq("id", ruleId)
-    .eq("created_by_admin_user_id", adminUserId)
-    .maybeSingle();
+  try {
+    await assertAdminActor(adminUserId);
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("operation_escalation_rules")
+      .select(
+        "id,created_by_admin_user_id,entity_type,name,filters_json,escalation_reason,is_active,is_muted,snoozed_until,muted_or_snoozed_reason,run_mode,last_run_at,next_run_at,cooldown_minutes,max_matches_per_run,consecutive_skip_count,consecutive_failure_count,last_success_at,last_failure_at,last_skip_reason,created_at,updated_at"
+      )
+      .eq("id", ruleId)
+      .eq("created_by_admin_user_id", adminUserId)
+      .maybeSingle();
 
-  if (error) {
-    throw new Error(`Failed to load escalation rule detail: ${error.message}`);
-  }
+    if (error) {
+      throw new Error(`Failed to load escalation rule detail: ${error.message}`);
+    }
 
-  if (!data) {
-    return null;
-  }
+    if (!data) {
+      return null;
+    }
 
-  const row = data as OperationEscalationRuleRow;
-  const filters = normalizeSubscriptionFilters(row.entity_type, row.filters_json);
-  const matches =
-    row.entity_type === "notification_delivery"
-      ? await listAdminDeliveries(filters as AdminDeliveryFilters, 200, adminUserId)
-      : await listAdminJobs(filters as AdminJobFilters, 200, adminUserId);
-  const rule = mapEscalationRuleRow(row, matches.length);
-  const recentRuns = await fetchEscalationRuleRunsByRuleId(ruleId, 30);
-  const acknowledgementHistory = await listAutomationAcknowledgements(
-    "operation_escalation_rule",
-    [ruleId]
-  );
-  const acknowledgement = acknowledgementHistory[0] ?? null;
-  const remediationPlaybooks = buildRemediationPlaybooks(
-    rule,
-    recentRuns.map((run) => ({
-      skipReason: run.skipReason,
-      failureReason: run.failureReason
-    }))
-  );
-  const rerunGuidance = buildManualRerunGuidance(
-    rule,
-    recentRuns.map((run) => ({
-      runStatus: run.runStatus,
-      skipReason: run.skipReason,
-      failureReason: run.failureReason,
-      createdAt: run.createdAt,
-      matchCount: run.matchedCount
-    }))
-  );
-  const verificationGuidance = buildPostRerunVerificationGuidance({
-    acknowledgement,
-    outcome: acknowledgement?.rerunOutcome ?? null,
-    playbooks: remediationPlaybooks,
-    currentMatchCount: rule.currentMatchCount,
-    automationState: rule.automationState,
-    lastSkipReason: rule.lastSkipReason,
-    lastFailureAt: rule.lastFailureAt
-  });
-
-  return {
-    rule,
-    recentRuns,
-    trendWindows: buildRuleTrendWindows(recentRuns),
-    rerunGuidance,
-    acknowledgement,
-    acknowledgementHistory,
-    remediationPlaybooks,
-    rerunReadiness: buildAutomationRerunReadiness({
-      record: rule,
+    const row = data as OperationEscalationRuleRow;
+    const filters = normalizeSubscriptionFilters(row.entity_type, row.filters_json);
+    const matches =
+      row.entity_type === "notification_delivery"
+        ? await listAdminDeliveries(filters as AdminDeliveryFilters, 200, adminUserId)
+        : await listAdminJobs(filters as AdminJobFilters, 200, adminUserId);
+    const rule = mapEscalationRuleRow(row, matches.length);
+    const recentRuns = await fetchEscalationRuleRunsByRuleId(ruleId, 30);
+    const acknowledgementHistory = await listAutomationAcknowledgements(
+      "operation_escalation_rule",
+      [ruleId]
+    );
+    const acknowledgement = acknowledgementHistory[0] ?? null;
+    const remediationPlaybooks = buildRemediationPlaybooks(
+      rule,
+      recentRuns.map((run) => ({
+        skipReason: run.skipReason,
+        failureReason: run.failureReason
+      }))
+    );
+    const rerunGuidance = buildManualRerunGuidance(
+      rule,
+      recentRuns.map((run) => ({
+        runStatus: run.runStatus,
+        skipReason: run.skipReason,
+        failureReason: run.failureReason,
+        createdAt: run.createdAt,
+        matchCount: run.matchedCount
+      }))
+    );
+    const verificationGuidance = buildPostRerunVerificationGuidance({
       acknowledgement,
+      outcome: acknowledgement?.rerunOutcome ?? null,
       playbooks: remediationPlaybooks,
-      guidance: rerunGuidance
-    }),
-    verificationGuidance
-  };
+      currentMatchCount: rule.currentMatchCount,
+      automationState: rule.automationState,
+      lastSkipReason: rule.lastSkipReason,
+      lastFailureAt: rule.lastFailureAt
+    });
+
+    return {
+      rule,
+      recentRuns,
+      trendWindows: buildRuleTrendWindows(recentRuns),
+      rerunGuidance,
+      acknowledgement,
+      acknowledgementHistory,
+      remediationPlaybooks,
+      rerunReadiness: buildAutomationRerunReadiness({
+        record: rule,
+        acknowledgement,
+        playbooks: remediationPlaybooks,
+        guidance: rerunGuidance
+      }),
+      verificationGuidance
+    };
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 export async function fetchOperationQueueSubscriptionDetail(
   subscriptionId: string,
   adminUserId: string
 ): Promise<OperationQueueSubscriptionDetail | null> {
-  await assertAdminActor(adminUserId);
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("operation_queue_subscriptions")
-    .select(
-      "id,admin_user_id,entity_type,name,filters_json,is_active,is_muted,snoozed_until,muted_or_snoozed_reason,digest_cooldown_minutes,last_digest_at,last_digest_hash,consecutive_skip_count,consecutive_failure_count,last_success_at,last_failure_at,last_skip_reason,created_at,updated_at"
-    )
-    .eq("id", subscriptionId)
-    .eq("admin_user_id", adminUserId)
-    .maybeSingle();
+  try {
+    await assertAdminActor(adminUserId);
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("operation_queue_subscriptions")
+      .select(
+        "id,admin_user_id,entity_type,name,filters_json,is_active,is_muted,snoozed_until,muted_or_snoozed_reason,digest_cooldown_minutes,last_digest_at,last_digest_hash,consecutive_skip_count,consecutive_failure_count,last_success_at,last_failure_at,last_skip_reason,created_at,updated_at"
+      )
+      .eq("id", subscriptionId)
+      .eq("admin_user_id", adminUserId)
+      .maybeSingle();
 
-  if (error) {
-    throw new Error(`Failed to load queue subscription detail: ${error.message}`);
-  }
+    if (error) {
+      throw new Error(`Failed to load queue subscription detail: ${error.message}`);
+    }
 
-  if (!data) {
-    return null;
-  }
+    if (!data) {
+      return null;
+    }
 
-  const row = data as OperationQueueSubscriptionRow;
-  const filters = normalizeSubscriptionFilters(row.entity_type, row.filters_json);
-  const matches =
-    row.entity_type === "notification_delivery"
-      ? await listAdminDeliveries(filters as AdminDeliveryFilters, 200, adminUserId)
-      : await listAdminJobs(filters as AdminJobFilters, 200, adminUserId);
-  const subscription = mapQueueSubscriptionRow(row, summarizeMatchedIncidents(matches));
-  const recentRuns = await fetchSubscriptionDigestRunsBySubscriptionId(subscriptionId, 30);
-  const acknowledgementHistory = await listAutomationAcknowledgements(
-    "operation_queue_subscription",
-    [subscriptionId]
-  );
-  const acknowledgement = acknowledgementHistory[0] ?? null;
-  const remediationPlaybooks = buildRemediationPlaybooks(
-    subscription,
-    recentRuns.map((run) => ({
-      skipReason: run.skipReason,
-      failureReason: run.failureReason
-    }))
-  );
-  const rerunGuidance = buildManualRerunGuidance(
-    subscription,
-    recentRuns.map((run) => ({
-      runStatus: run.runStatus,
-      skipReason: run.skipReason,
-      failureReason: run.failureReason,
-      createdAt: run.createdAt,
-      matchCount: run.matchCount
-    }))
-  );
-  const verificationGuidance = buildPostRerunVerificationGuidance({
-    acknowledgement,
-    outcome: acknowledgement?.rerunOutcome ?? null,
-    playbooks: remediationPlaybooks,
-    currentMatchCount: subscription.currentMatchCount,
-    automationState: subscription.automationState,
-    lastSkipReason: subscription.lastSkipReason,
-    lastFailureAt: subscription.lastFailureAt
-  });
-
-  return {
-    subscription,
-    recentRuns,
-    trendWindows: buildSubscriptionTrendWindows(recentRuns),
-    rerunGuidance,
-    acknowledgement,
-    acknowledgementHistory,
-    remediationPlaybooks,
-    rerunReadiness: buildAutomationRerunReadiness({
-      record: subscription,
+    const row = data as OperationQueueSubscriptionRow;
+    const filters = normalizeSubscriptionFilters(row.entity_type, row.filters_json);
+    const matches =
+      row.entity_type === "notification_delivery"
+        ? await listAdminDeliveries(filters as AdminDeliveryFilters, 200, adminUserId)
+        : await listAdminJobs(filters as AdminJobFilters, 200, adminUserId);
+    const subscription = mapQueueSubscriptionRow(row, summarizeMatchedIncidents(matches));
+    const recentRuns = await fetchSubscriptionDigestRunsBySubscriptionId(subscriptionId, 30);
+    const acknowledgementHistory = await listAutomationAcknowledgements(
+      "operation_queue_subscription",
+      [subscriptionId]
+    );
+    const acknowledgement = acknowledgementHistory[0] ?? null;
+    const remediationPlaybooks = buildRemediationPlaybooks(
+      subscription,
+      recentRuns.map((run) => ({
+        skipReason: run.skipReason,
+        failureReason: run.failureReason
+      }))
+    );
+    const rerunGuidance = buildManualRerunGuidance(
+      subscription,
+      recentRuns.map((run) => ({
+        runStatus: run.runStatus,
+        skipReason: run.skipReason,
+        failureReason: run.failureReason,
+        createdAt: run.createdAt,
+        matchCount: run.matchCount
+      }))
+    );
+    const verificationGuidance = buildPostRerunVerificationGuidance({
       acknowledgement,
+      outcome: acknowledgement?.rerunOutcome ?? null,
       playbooks: remediationPlaybooks,
-      guidance: rerunGuidance
-    }),
-    verificationGuidance
-  };
+      currentMatchCount: subscription.currentMatchCount,
+      automationState: subscription.automationState,
+      lastSkipReason: subscription.lastSkipReason,
+      lastFailureAt: subscription.lastFailureAt
+    });
+
+    return {
+      subscription,
+      recentRuns,
+      trendWindows: buildSubscriptionTrendWindows(recentRuns),
+      rerunGuidance,
+      acknowledgement,
+      acknowledgementHistory,
+      remediationPlaybooks,
+      rerunReadiness: buildAutomationRerunReadiness({
+        record: subscription,
+        acknowledgement,
+        playbooks: remediationPlaybooks,
+        guidance: rerunGuidance
+      }),
+      verificationGuidance
+    };
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 async function findMatchingSubscriptionsForIncident(
@@ -2107,48 +2222,64 @@ export async function listOperationSavedViews(
   adminUserId: string,
   entityType: OperationEntityType
 ): Promise<OperationSavedViewRecord[]> {
-  await assertAdminActor(adminUserId);
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("operation_saved_views")
-    .select("id,admin_user_id,entity_type,name,filters_json,is_default,created_at,updated_at")
-    .eq("admin_user_id", adminUserId)
-    .eq("entity_type", entityType)
-    .order("is_default", { ascending: false })
-    .order("updated_at", { ascending: false });
+  try {
+    await assertAdminActor(adminUserId);
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("operation_saved_views")
+      .select("id,admin_user_id,entity_type,name,filters_json,is_default,created_at,updated_at")
+      .eq("admin_user_id", adminUserId)
+      .eq("entity_type", entityType)
+      .order("is_default", { ascending: false })
+      .order("updated_at", { ascending: false });
 
-  if (error) {
-    throw new Error(`Failed to load saved views: ${error.message}`);
+    if (error) {
+      throw new Error(`Failed to load saved views: ${error.message}`);
+    }
+
+    return ((data as OperationSavedViewRow[] | null) ?? []).map((row) => mapSavedViewRow(row));
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return [];
+    }
+
+    throw error;
   }
-
-  return ((data as OperationSavedViewRow[] | null) ?? []).map((row) => mapSavedViewRow(row));
 }
 
 export async function fetchDefaultOperationSavedView(
   adminUserId: string,
   entityType: OperationEntityType
 ): Promise<OperationSavedViewRecord | null> {
-  await assertAdminActor(adminUserId);
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("operation_saved_views")
-    .select("id,admin_user_id,entity_type,name,filters_json,is_default,created_at,updated_at")
-    .eq("admin_user_id", adminUserId)
-    .eq("entity_type", entityType)
-    .eq("is_default", true)
-    .maybeSingle();
+  try {
+    await assertAdminActor(adminUserId);
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("operation_saved_views")
+      .select("id,admin_user_id,entity_type,name,filters_json,is_default,created_at,updated_at")
+      .eq("admin_user_id", adminUserId)
+      .eq("entity_type", entityType)
+      .eq("is_default", true)
+      .maybeSingle();
 
-  if (error) {
-    throw new Error(`Failed to load default saved view: ${error.message}`);
+    if (error) {
+      throw new Error(`Failed to load default saved view: ${error.message}`);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    const row = data as OperationSavedViewRow;
+
+    return mapSavedViewRow(row);
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return null;
+    }
+
+    throw error;
   }
-
-  if (!data) {
-    return null;
-  }
-
-  const row = data as OperationSavedViewRow;
-
-  return mapSavedViewRow(row);
 }
 
 export async function createOperationQueueSubscription(input: {
@@ -4631,11 +4762,11 @@ async function fetchTopFailureCategories(limit = 6): Promise<AdminFailureCategor
 export async function fetchAdminOperationsSnapshot(
   adminUserId?: string
 ): Promise<AdminOperationsSnapshot> {
-  if (adminUserId) {
-    await assertAdminActor(adminUserId);
-  }
-
   try {
+    if (adminUserId) {
+      await assertAdminActor(adminUserId);
+    }
+
     const cutoff = new Date(Date.now() - STALE_QUEUE_MINUTES * 60 * 1000).toISOString();
     const resolvedTodayCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const [
@@ -4883,7 +5014,7 @@ export async function fetchAdminOperationsSnapshot(
   } catch (error) {
     return {
       summary: getEmptySummary(),
-      warning: error instanceof Error ? error.message : "Unknown operations summary error."
+      warning: getOperationsReadWarning(error)
     };
   }
 }
@@ -4891,97 +5022,115 @@ export async function fetchAdminOperationsSnapshot(
 export async function fetchAdminOperationsOverview(
   adminUserId?: string
 ): Promise<AdminOperationsOverview> {
-  if (adminUserId) {
-    await assertAdminActor(adminUserId);
+  const snapshot = await fetchAdminOperationsSnapshot(adminUserId);
+
+  if (snapshot.warning === OPERATIONS_ADMIN_UNAVAILABLE_WARNING) {
+    return getEmptyOverview(snapshot.summary, snapshot.warning);
   }
 
-  const snapshot = await fetchAdminOperationsSnapshot(adminUserId);
-  const defaultDeliveryFilters: AdminDeliveryFilters = { ...DEFAULT_DELIVERY_FILTERS };
-  const defaultJobFilters: AdminJobFilters = { ...DEFAULT_JOB_FILTERS };
-  const assignedToMeDeliveryFilters: AdminDeliveryFilters = {
-    ...defaultDeliveryFilters,
-    ownership: "assigned_to_me"
-  };
-  const assignedToMeJobFilters: AdminJobFilters = {
-    ...defaultJobFilters,
-    ownership: "assigned_to_me"
-  };
-  const recentlyHandedOffDeliveryFilters: AdminDeliveryFilters = {
-    ...defaultDeliveryFilters,
-    recentlyHandedOff: true
-  };
-  const recentlyHandedOffJobFilters: AdminJobFilters = {
-    ...defaultJobFilters,
-    recentlyHandedOff: true
-  };
-  const watchedDeliveryFilters: AdminDeliveryFilters = {
-    ...defaultDeliveryFilters,
-    watchedOnly: true
-  };
-  const watchedJobFilters: AdminJobFilters = {
-    ...defaultJobFilters,
-    watchedOnly: true
-  };
-  const escalatedDeliveryFilters: AdminDeliveryFilters = {
-    ...defaultDeliveryFilters,
-    escalatedOnly: true
-  };
-  const escalatedJobFilters: AdminJobFilters = {
-    ...defaultJobFilters,
-    escalatedOnly: true
-  };
+  try {
+    if (adminUserId) {
+      await assertAdminActor(adminUserId);
+    }
 
-  const [
-    recentDeliveries,
-    recentJobs,
-    recentActions,
-    topFailureCategories,
-    myAssignedDeliveries,
-    myAssignedJobs,
-    recentlyHandedOffDeliveries,
-    recentlyHandedOffJobs,
-    watchedDeliveries,
-    watchedJobs,
-    escalatedDeliveries,
-    escalatedJobs,
-    subscribedDeliveryViews,
-    subscribedJobViews,
-    escalationDeliveryRules,
-    escalationJobRules,
-    recentEscalationRuleRuns,
-    recentSubscriptionDigestRuns,
-    defaultDeliveryView,
-    defaultJobView
-  ] = await Promise.all([
-    listAdminDeliveries(defaultDeliveryFilters, 5),
-    listAdminJobs(defaultJobFilters, 5),
-    fetchRecentOperationAuditEvents(8),
-    fetchTopFailureCategories(6),
-    adminUserId ? listAdminDeliveries(assignedToMeDeliveryFilters, 5, adminUserId) : Promise.resolve([]),
-    adminUserId ? listAdminJobs(assignedToMeJobFilters, 5, adminUserId) : Promise.resolve([]),
-    listAdminDeliveries(recentlyHandedOffDeliveryFilters, 5, adminUserId),
-    listAdminJobs(recentlyHandedOffJobFilters, 5, adminUserId),
-    adminUserId ? listAdminDeliveries(watchedDeliveryFilters, 5, adminUserId) : Promise.resolve([]),
-    adminUserId ? listAdminJobs(watchedJobFilters, 5, adminUserId) : Promise.resolve([]),
-    listAdminDeliveries(escalatedDeliveryFilters, 5, adminUserId),
-    listAdminJobs(escalatedJobFilters, 5, adminUserId),
-    adminUserId
-      ? listOperationQueueSubscriptions(adminUserId, "notification_delivery")
-      : Promise.resolve([]),
-    adminUserId ? listOperationQueueSubscriptions(adminUserId, "scheduled_job") : Promise.resolve([]),
-    adminUserId
-      ? listOperationEscalationRules(adminUserId, "notification_delivery")
-      : Promise.resolve([]),
-    adminUserId ? listOperationEscalationRules(adminUserId, "scheduled_job") : Promise.resolve([]),
-    adminUserId ? listOperationEscalationRuleRuns(adminUserId, undefined, 10) : Promise.resolve([]),
-    adminUserId
-      ? listOperationSubscriptionDigestRuns(adminUserId, undefined, 10)
-      : Promise.resolve([]),
-    adminUserId
-      ? fetchDefaultOperationSavedView(adminUserId, "notification_delivery")
-      : Promise.resolve(null),
-    adminUserId ? fetchDefaultOperationSavedView(adminUserId, "scheduled_job") : Promise.resolve(null)
-  ]);
+    const defaultDeliveryFilters: AdminDeliveryFilters = { ...DEFAULT_DELIVERY_FILTERS };
+    const defaultJobFilters: AdminJobFilters = { ...DEFAULT_JOB_FILTERS };
+    const assignedToMeDeliveryFilters: AdminDeliveryFilters = {
+      ...defaultDeliveryFilters,
+      ownership: "assigned_to_me"
+    };
+    const assignedToMeJobFilters: AdminJobFilters = {
+      ...defaultJobFilters,
+      ownership: "assigned_to_me"
+    };
+    const recentlyHandedOffDeliveryFilters: AdminDeliveryFilters = {
+      ...defaultDeliveryFilters,
+      recentlyHandedOff: true
+    };
+    const recentlyHandedOffJobFilters: AdminJobFilters = {
+      ...defaultJobFilters,
+      recentlyHandedOff: true
+    };
+    const watchedDeliveryFilters: AdminDeliveryFilters = {
+      ...defaultDeliveryFilters,
+      watchedOnly: true
+    };
+    const watchedJobFilters: AdminJobFilters = {
+      ...defaultJobFilters,
+      watchedOnly: true
+    };
+    const escalatedDeliveryFilters: AdminDeliveryFilters = {
+      ...defaultDeliveryFilters,
+      escalatedOnly: true
+    };
+    const escalatedJobFilters: AdminJobFilters = {
+      ...defaultJobFilters,
+      escalatedOnly: true
+    };
+
+    const [
+      recentDeliveries,
+      recentJobs,
+      recentActions,
+      topFailureCategories,
+      myAssignedDeliveries,
+      myAssignedJobs,
+      recentlyHandedOffDeliveries,
+      recentlyHandedOffJobs,
+      watchedDeliveries,
+      watchedJobs,
+      escalatedDeliveries,
+      escalatedJobs,
+      subscribedDeliveryViews,
+      subscribedJobViews,
+      escalationDeliveryRules,
+      escalationJobRules,
+      recentEscalationRuleRuns,
+      recentSubscriptionDigestRuns,
+      defaultDeliveryView,
+      defaultJobView
+    ] = await Promise.all([
+      listAdminDeliveries(defaultDeliveryFilters, 5),
+      listAdminJobs(defaultJobFilters, 5),
+      fetchRecentOperationAuditEvents(8),
+      fetchTopFailureCategories(6),
+      adminUserId
+        ? listAdminDeliveries(assignedToMeDeliveryFilters, 5, adminUserId)
+        : Promise.resolve([]),
+      adminUserId
+        ? listAdminJobs(assignedToMeJobFilters, 5, adminUserId)
+        : Promise.resolve([]),
+      listAdminDeliveries(recentlyHandedOffDeliveryFilters, 5, adminUserId),
+      listAdminJobs(recentlyHandedOffJobFilters, 5, adminUserId),
+      adminUserId
+        ? listAdminDeliveries(watchedDeliveryFilters, 5, adminUserId)
+        : Promise.resolve([]),
+      adminUserId ? listAdminJobs(watchedJobFilters, 5, adminUserId) : Promise.resolve([]),
+      listAdminDeliveries(escalatedDeliveryFilters, 5, adminUserId),
+      listAdminJobs(escalatedJobFilters, 5, adminUserId),
+      adminUserId
+        ? listOperationQueueSubscriptions(adminUserId, "notification_delivery")
+        : Promise.resolve([]),
+      adminUserId
+        ? listOperationQueueSubscriptions(adminUserId, "scheduled_job")
+        : Promise.resolve([]),
+      adminUserId
+        ? listOperationEscalationRules(adminUserId, "notification_delivery")
+        : Promise.resolve([]),
+      adminUserId
+        ? listOperationEscalationRules(adminUserId, "scheduled_job")
+        : Promise.resolve([]),
+      adminUserId ? listOperationEscalationRuleRuns(adminUserId, undefined, 10) : Promise.resolve([]),
+      adminUserId
+        ? listOperationSubscriptionDigestRuns(adminUserId, undefined, 10)
+        : Promise.resolve([]),
+      adminUserId
+        ? fetchDefaultOperationSavedView(adminUserId, "notification_delivery")
+        : Promise.resolve(null),
+      adminUserId
+        ? fetchDefaultOperationSavedView(adminUserId, "scheduled_job")
+        : Promise.resolve(null)
+    ]);
 
   const activeAutomatedRules = [...escalationDeliveryRules, ...escalationJobRules].filter(
     (rule) => rule.isActive && rule.runMode === "automated"
@@ -5166,67 +5315,73 @@ export async function fetchAdminOperationsOverview(
     })
     .slice(0, 6);
 
-  return {
-    summary: {
-      ...snapshot.summary,
-      activeAutomatedRules,
-      recentRuleRuns: recentEscalationRuleRuns.length,
-      recentDigestRuns: recentSubscriptionDigestRuns.length,
-      rulesInCooldown,
-      subscriptionsWithActiveMatches,
-      mutedRules,
-      snoozedSubscriptions,
-      unhealthyRules,
-      unhealthySubscriptions,
-      healthyAutomation,
-      warningAutomation,
-      unhealthyAutomation,
-      recentSkippedRuns,
-      recentFailedRuns,
-      unacknowledgedUnhealthyAutomation,
-      acknowledgedUnresolvedAutomation,
-      fixedPendingRerunAutomation,
-      resolvedRecentlyAutomation,
-      assignedUnhealthyAutomation,
-      unassignedUnhealthyAutomation,
-      overdueAcknowledgementReminders,
-      fixedPendingRerunAwaitingVerification,
-      overdueAssignedAutomation,
-      verificationPendingAutomation,
-      verificationFailedAutomation,
-      dismissedReminderAutomation,
-      snoozedReminderAutomation
-    },
-    recentDeliveries,
-    recentJobs,
-    recentActions,
-    topFailureCategories,
-    myAssignedDeliveries,
-    myAssignedJobs,
-    recentlyHandedOffDeliveries,
-    recentlyHandedOffJobs,
-    watchedDeliveries,
-    watchedJobs,
-    escalatedDeliveries,
-    escalatedJobs,
-    subscribedDeliveryViews: subscribedDeliveryViews.filter((view) => view.isActive).slice(0, 5),
-    subscribedJobViews: subscribedJobViews.filter((view) => view.isActive).slice(0, 5),
-    escalationDeliveryRules: escalationDeliveryRules.filter((rule) => rule.isActive).slice(0, 5),
-    escalationJobRules: escalationJobRules.filter((rule) => rule.isActive).slice(0, 5),
-    recentEscalationRuleRuns,
-    recentSubscriptionDigestRuns,
-    topSkipReasons,
-    topFailureReasons,
-    unhealthyAutomationRules,
-    unhealthyAutomationSubscriptions,
-    needingAcknowledgementRules,
-    needingAcknowledgementSubscriptions,
-    overdueFollowUpRules,
-    overdueFollowUpSubscriptions,
-    defaultDeliveryView,
-    defaultJobView,
-    warning: snapshot.warning
-  };
+    return {
+      summary: {
+        ...snapshot.summary,
+        activeAutomatedRules,
+        recentRuleRuns: recentEscalationRuleRuns.length,
+        recentDigestRuns: recentSubscriptionDigestRuns.length,
+        rulesInCooldown,
+        subscriptionsWithActiveMatches,
+        mutedRules,
+        snoozedSubscriptions,
+        unhealthyRules,
+        unhealthySubscriptions,
+        healthyAutomation,
+        warningAutomation,
+        unhealthyAutomation,
+        recentSkippedRuns,
+        recentFailedRuns,
+        unacknowledgedUnhealthyAutomation,
+        acknowledgedUnresolvedAutomation,
+        fixedPendingRerunAutomation,
+        resolvedRecentlyAutomation,
+        assignedUnhealthyAutomation,
+        unassignedUnhealthyAutomation,
+        overdueAcknowledgementReminders,
+        fixedPendingRerunAwaitingVerification,
+        overdueAssignedAutomation,
+        verificationPendingAutomation,
+        verificationFailedAutomation,
+        dismissedReminderAutomation,
+        snoozedReminderAutomation
+      },
+      recentDeliveries,
+      recentJobs,
+      recentActions,
+      topFailureCategories,
+      myAssignedDeliveries,
+      myAssignedJobs,
+      recentlyHandedOffDeliveries,
+      recentlyHandedOffJobs,
+      watchedDeliveries,
+      watchedJobs,
+      escalatedDeliveries,
+      escalatedJobs,
+      subscribedDeliveryViews: subscribedDeliveryViews.filter((view) => view.isActive).slice(0, 5),
+      subscribedJobViews: subscribedJobViews.filter((view) => view.isActive).slice(0, 5),
+      escalationDeliveryRules: escalationDeliveryRules.filter((rule) => rule.isActive).slice(0, 5),
+      escalationJobRules: escalationJobRules.filter((rule) => rule.isActive).slice(0, 5),
+      recentEscalationRuleRuns,
+      recentSubscriptionDigestRuns,
+      topSkipReasons,
+      topFailureReasons,
+      unhealthyAutomationRules,
+      unhealthyAutomationSubscriptions,
+      needingAcknowledgementRules,
+      needingAcknowledgementSubscriptions,
+      overdueFollowUpRules,
+      overdueFollowUpSubscriptions,
+      defaultDeliveryView,
+      defaultJobView,
+      warning: snapshot.warning
+    };
+  } catch (error) {
+    return getEmptyOverview(
+      snapshot.summary,
+      snapshot.warning ?? getOperationsReadWarning(error)
+    );
+  }
 }
 
 export async function listAdminDeliveries(
@@ -5234,93 +5389,101 @@ export async function listAdminDeliveries(
   limit = 25,
   adminUserId?: string
 ): Promise<AdminDeliveryRecord[]> {
-  if (adminUserId) {
-    await assertAdminActor(adminUserId);
-  }
+  try {
+    if (adminUserId) {
+      await assertAdminActor(adminUserId);
+    }
 
-  const client = getOperationsClient();
-  const recentlyHandedOffIds = filters.recentlyHandedOff
-    ? await fetchRecentlyHandedOffIds("notification_delivery")
-    : [];
-  const watchedIds =
-    filters.watchedOnly && adminUserId
-      ? await fetchWatchedEntityIds("notification_delivery", adminUserId)
+    const client = getOperationsClient();
+    const recentlyHandedOffIds = filters.recentlyHandedOff
+      ? await fetchRecentlyHandedOffIds("notification_delivery")
       : [];
-  let query = client.from("notification_deliveries").select(DELIVERY_SELECT);
+    const watchedIds =
+      filters.watchedOnly && adminUserId
+        ? await fetchWatchedEntityIds("notification_delivery", adminUserId)
+        : [];
+    let query = client.from("notification_deliveries").select(DELIVERY_SELECT);
 
-  if (filters.status !== "all") {
-    query = query.eq("status", filters.status);
-  }
-
-  if (filters.userId) {
-    query = query.eq("user_id", filters.userId);
-  }
-
-  if (filters.channel !== "all") {
-    query = query.eq("channel", filters.channel);
-  }
-
-  if (filters.templateKey !== "all") {
-    query = query.eq("template_key", filters.templateKey);
-  }
-
-  if (filters.workflowState !== "all") {
-    query = query.eq("workflow_state", filters.workflowState);
-  }
-
-  if (filters.escalatedOnly) {
-    query = query.eq("is_escalated", true);
-  }
-
-  if (filters.ownership === "assigned_to_me") {
-    if (!adminUserId) {
-      throw new OperationsError("Assigned-to-me filters require an admin user context.");
+    if (filters.status !== "all") {
+      query = query.eq("status", filters.status);
     }
 
-    query = query.eq("assigned_admin_user_id", adminUserId);
-  } else if (filters.ownership === "unassigned") {
-    query = query.is("assigned_admin_user_id", null);
-  }
+    if (filters.userId) {
+      query = query.eq("user_id", filters.userId);
+    }
 
-  if (filters.recentlyHandedOff) {
-    if (recentlyHandedOffIds.length === 0) {
+    if (filters.channel !== "all") {
+      query = query.eq("channel", filters.channel);
+    }
+
+    if (filters.templateKey !== "all") {
+      query = query.eq("template_key", filters.templateKey);
+    }
+
+    if (filters.workflowState !== "all") {
+      query = query.eq("workflow_state", filters.workflowState);
+    }
+
+    if (filters.escalatedOnly) {
+      query = query.eq("is_escalated", true);
+    }
+
+    if (filters.ownership === "assigned_to_me") {
+      if (!adminUserId) {
+        throw new OperationsError("Assigned-to-me filters require an admin user context.");
+      }
+
+      query = query.eq("assigned_admin_user_id", adminUserId);
+    } else if (filters.ownership === "unassigned") {
+      query = query.is("assigned_admin_user_id", null);
+    }
+
+    if (filters.recentlyHandedOff) {
+      if (recentlyHandedOffIds.length === 0) {
+        return [];
+      }
+
+      query = query.in("id", recentlyHandedOffIds);
+    }
+
+    if (filters.watchedOnly) {
+      if (!adminUserId) {
+        throw new OperationsError("Watched filters require an admin user context.");
+      }
+
+      if (watchedIds.length === 0) {
+        return [];
+      }
+
+      query = query.in("id", watchedIds);
+    }
+
+    query = applyDeliveryOrdering(query, filters.sort).limit(Math.max(limit * 4, 100));
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to load notification deliveries: ${error.message}`);
+    }
+
+    let records = await enrichDeliveries((data as DeliveryRow[] | null) ?? [], adminUserId);
+
+    if (filters.relatedEntityType) {
+      records = records.filter((record) => record.relatedEntityType === filters.relatedEntityType);
+    }
+
+    if (filters.needsAttention) {
+      records = records.filter((record) => record.needsAttention);
+    }
+
+    return records.slice(0, limit);
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
       return [];
     }
 
-    query = query.in("id", recentlyHandedOffIds);
+    throw error;
   }
-
-  if (filters.watchedOnly) {
-    if (!adminUserId) {
-      throw new OperationsError("Watched filters require an admin user context.");
-    }
-
-    if (watchedIds.length === 0) {
-      return [];
-    }
-
-    query = query.in("id", watchedIds);
-  }
-
-  query = applyDeliveryOrdering(query, filters.sort).limit(Math.max(limit * 4, 100));
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(`Failed to load notification deliveries: ${error.message}`);
-  }
-
-  let records = await enrichDeliveries((data as DeliveryRow[] | null) ?? [], adminUserId);
-
-  if (filters.relatedEntityType) {
-    records = records.filter((record) => record.relatedEntityType === filters.relatedEntityType);
-  }
-
-  if (filters.needsAttention) {
-    records = records.filter((record) => record.needsAttention);
-  }
-
-  return records.slice(0, limit);
 }
 
 export async function listAdminJobs(
@@ -5328,193 +5491,222 @@ export async function listAdminJobs(
   limit = 25,
   adminUserId?: string
 ): Promise<AdminScheduledJobRecord[]> {
-  if (adminUserId) {
-    await assertAdminActor(adminUserId);
-  }
+  try {
+    if (adminUserId) {
+      await assertAdminActor(adminUserId);
+    }
 
-  const client = getOperationsClient();
-  const recentlyHandedOffIds = filters.recentlyHandedOff
-    ? await fetchRecentlyHandedOffIds("scheduled_job")
-    : [];
-  const watchedIds =
-    filters.watchedOnly && adminUserId
-      ? await fetchWatchedEntityIds("scheduled_job", adminUserId)
+    const client = getOperationsClient();
+    const recentlyHandedOffIds = filters.recentlyHandedOff
+      ? await fetchRecentlyHandedOffIds("scheduled_job")
       : [];
-  let query = client.from("scheduled_jobs").select(JOB_SELECT);
+    const watchedIds =
+      filters.watchedOnly && adminUserId
+        ? await fetchWatchedEntityIds("scheduled_job", adminUserId)
+        : [];
+    let query = client.from("scheduled_jobs").select(JOB_SELECT);
 
-  if (filters.status !== "all") {
-    query = query.eq("status", filters.status);
-  }
-
-  if (filters.userId) {
-    query = query.eq("user_id", filters.userId);
-  }
-
-  if (filters.jobType !== "all") {
-    query = query.eq("job_type", filters.jobType);
-  }
-
-  if (filters.relatedEntityType) {
-    query = query.eq("related_entity_type", filters.relatedEntityType);
-  }
-
-  if (filters.workflowState !== "all") {
-    query = query.eq("workflow_state", filters.workflowState);
-  }
-
-  if (filters.escalatedOnly) {
-    query = query.eq("is_escalated", true);
-  }
-
-  if (filters.ownership === "assigned_to_me") {
-    if (!adminUserId) {
-      throw new OperationsError("Assigned-to-me filters require an admin user context.");
+    if (filters.status !== "all") {
+      query = query.eq("status", filters.status);
     }
 
-    query = query.eq("assigned_admin_user_id", adminUserId);
-  } else if (filters.ownership === "unassigned") {
-    query = query.is("assigned_admin_user_id", null);
-  }
+    if (filters.userId) {
+      query = query.eq("user_id", filters.userId);
+    }
 
-  if (filters.recentlyHandedOff) {
-    if (recentlyHandedOffIds.length === 0) {
+    if (filters.jobType !== "all") {
+      query = query.eq("job_type", filters.jobType);
+    }
+
+    if (filters.relatedEntityType) {
+      query = query.eq("related_entity_type", filters.relatedEntityType);
+    }
+
+    if (filters.workflowState !== "all") {
+      query = query.eq("workflow_state", filters.workflowState);
+    }
+
+    if (filters.escalatedOnly) {
+      query = query.eq("is_escalated", true);
+    }
+
+    if (filters.ownership === "assigned_to_me") {
+      if (!adminUserId) {
+        throw new OperationsError("Assigned-to-me filters require an admin user context.");
+      }
+
+      query = query.eq("assigned_admin_user_id", adminUserId);
+    } else if (filters.ownership === "unassigned") {
+      query = query.is("assigned_admin_user_id", null);
+    }
+
+    if (filters.recentlyHandedOff) {
+      if (recentlyHandedOffIds.length === 0) {
+        return [];
+      }
+
+      query = query.in("id", recentlyHandedOffIds);
+    }
+
+    if (filters.watchedOnly) {
+      if (!adminUserId) {
+        throw new OperationsError("Watched filters require an admin user context.");
+      }
+
+      if (watchedIds.length === 0) {
+        return [];
+      }
+
+      query = query.in("id", watchedIds);
+    }
+
+    query = applyJobOrdering(query, filters.sort).limit(Math.max(limit * 4, 100));
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to load scheduled jobs: ${error.message}`);
+    }
+
+    let records = await enrichJobs((data as JobRow[] | null) ?? [], adminUserId);
+
+    if (filters.needsAttention) {
+      records = records.filter((record) => record.needsAttention);
+    }
+
+    return records.slice(0, limit);
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
       return [];
     }
 
-    query = query.in("id", recentlyHandedOffIds);
+    throw error;
   }
-
-  if (filters.watchedOnly) {
-    if (!adminUserId) {
-      throw new OperationsError("Watched filters require an admin user context.");
-    }
-
-    if (watchedIds.length === 0) {
-      return [];
-    }
-
-    query = query.in("id", watchedIds);
-  }
-
-  query = applyJobOrdering(query, filters.sort).limit(Math.max(limit * 4, 100));
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(`Failed to load scheduled jobs: ${error.message}`);
-  }
-
-  let records = await enrichJobs((data as JobRow[] | null) ?? [], adminUserId);
-
-  if (filters.needsAttention) {
-    records = records.filter((record) => record.needsAttention);
-  }
-
-  return records.slice(0, limit);
 }
 
 export async function fetchAdminDeliveryDetail(
   deliveryId: string,
   adminUserId?: string
 ): Promise<AdminDeliveryDetail | null> {
-  if (adminUserId) {
-    await assertAdminActor(adminUserId);
+  try {
+    if (adminUserId) {
+      await assertAdminActor(adminUserId);
+    }
+
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("notification_deliveries")
+      .select(DELIVERY_SELECT)
+      .eq("id", deliveryId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Failed to load delivery detail: ${error.message}`);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    const [delivery, notes, comments, watchers, auditEvents, assignmentHistory] = await Promise.all([
+      enrichDeliveries([data as DeliveryRow]),
+      listOperationNotes("notification_delivery", deliveryId),
+      listOperationComments("notification_delivery", deliveryId),
+      listOperationWatchers("notification_delivery", deliveryId),
+      listOperationAuditEvents("notification_delivery", deliveryId),
+      listAssignmentHistory("notification_delivery", deliveryId)
+    ]);
+    const notification = (data as DeliveryRow).notification?.[0] ?? null;
+    const matchingSubscriptions = adminUserId
+      ? await findMatchingSubscriptionsForIncident(
+          adminUserId,
+          "notification_delivery",
+          delivery[0],
+          {
+            isWatching: watchers.some((watcher) => watcher.adminUserId === adminUserId)
+          }
+        ).catch(() => [])
+      : [];
+
+    return {
+      ...delivery[0],
+      notificationTitle: notification?.title ?? null,
+      notificationMessage: notification?.message ?? null,
+      linkUrl: notification?.link_url ?? null,
+      externalMessageId: (data as DeliveryRow).external_message_id ?? null,
+      notes,
+      comments,
+      watchers,
+      matchingSubscriptions,
+      auditEvents,
+      assignmentHistory
+    };
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return null;
+    }
+
+    throw error;
   }
-
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("notification_deliveries")
-    .select(DELIVERY_SELECT)
-    .eq("id", deliveryId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to load delivery detail: ${error.message}`);
-  }
-
-  if (!data) {
-    return null;
-  }
-
-  const [delivery, notes, comments, watchers, auditEvents, assignmentHistory] = await Promise.all([
-    enrichDeliveries([data as DeliveryRow]),
-    listOperationNotes("notification_delivery", deliveryId),
-    listOperationComments("notification_delivery", deliveryId),
-    listOperationWatchers("notification_delivery", deliveryId),
-    listOperationAuditEvents("notification_delivery", deliveryId),
-    listAssignmentHistory("notification_delivery", deliveryId)
-  ]);
-  const notification = (data as DeliveryRow).notification?.[0] ?? null;
-  const matchingSubscriptions = adminUserId
-    ? await findMatchingSubscriptionsForIncident(adminUserId, "notification_delivery", delivery[0], {
-        isWatching: watchers.some((watcher) => watcher.adminUserId === adminUserId)
-      }).catch(() => [])
-    : [];
-
-  return {
-    ...delivery[0],
-    notificationTitle: notification?.title ?? null,
-    notificationMessage: notification?.message ?? null,
-    linkUrl: notification?.link_url ?? null,
-    externalMessageId: (data as DeliveryRow).external_message_id ?? null,
-    notes,
-    comments,
-    watchers,
-    matchingSubscriptions,
-    auditEvents,
-    assignmentHistory
-  };
 }
 
 export async function fetchAdminJobDetail(
   jobId: string,
   adminUserId?: string
 ): Promise<AdminScheduledJobDetail | null> {
-  if (adminUserId) {
-    await assertAdminActor(adminUserId);
+  try {
+    if (adminUserId) {
+      await assertAdminActor(adminUserId);
+    }
+
+    const client = getOperationsClient();
+    const { data, error } = await client
+      .from("scheduled_jobs")
+      .select(JOB_SELECT)
+      .eq("id", jobId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Failed to load scheduled job detail: ${error.message}`);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    const [job, notes, comments, watchers, auditEvents, assignmentHistory] = await Promise.all([
+      enrichJobs([data as JobRow]),
+      listOperationNotes("scheduled_job", jobId),
+      listOperationComments("scheduled_job", jobId),
+      listOperationWatchers("scheduled_job", jobId),
+      listOperationAuditEvents("scheduled_job", jobId),
+      listAssignmentHistory("scheduled_job", jobId)
+    ]);
+    const row = data as JobRow;
+    const matchingSubscriptions = adminUserId
+      ? await findMatchingSubscriptionsForIncident(adminUserId, "scheduled_job", job[0], {
+          isWatching: watchers.some((watcher) => watcher.adminUserId === adminUserId)
+        }).catch(() => [])
+      : [];
+
+    return {
+      ...job[0],
+      dedupeKey: row.dedupe_key ?? null,
+      payload: JSON.stringify(row.payload ?? {}, null, 2),
+      notes,
+      comments,
+      watchers,
+      matchingSubscriptions,
+      auditEvents,
+      assignmentHistory
+    };
+  } catch (error) {
+    if (shouldUseOperationsReadFallback(error)) {
+      return null;
+    }
+
+    throw error;
   }
-
-  const client = getOperationsClient();
-  const { data, error } = await client
-    .from("scheduled_jobs")
-    .select(JOB_SELECT)
-    .eq("id", jobId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to load scheduled job detail: ${error.message}`);
-  }
-
-  if (!data) {
-    return null;
-  }
-
-  const [job, notes, comments, watchers, auditEvents, assignmentHistory] = await Promise.all([
-    enrichJobs([data as JobRow]),
-    listOperationNotes("scheduled_job", jobId),
-    listOperationComments("scheduled_job", jobId),
-    listOperationWatchers("scheduled_job", jobId),
-    listOperationAuditEvents("scheduled_job", jobId),
-    listAssignmentHistory("scheduled_job", jobId)
-  ]);
-  const row = data as JobRow;
-  const matchingSubscriptions = adminUserId
-    ? await findMatchingSubscriptionsForIncident(adminUserId, "scheduled_job", job[0], {
-        isWatching: watchers.some((watcher) => watcher.adminUserId === adminUserId)
-      }).catch(() => [])
-    : [];
-
-  return {
-    ...job[0],
-    dedupeKey: row.dedupe_key ?? null,
-    payload: JSON.stringify(row.payload ?? {}, null, 2),
-    notes,
-    comments,
-    watchers,
-    matchingSubscriptions,
-    auditEvents,
-    assignmentHistory
-  };
 }
 
 export async function addAdminOperationNote(input: {

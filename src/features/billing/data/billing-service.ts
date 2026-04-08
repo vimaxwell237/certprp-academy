@@ -136,6 +136,38 @@ function mapSubscription(subscription: RawSubscription): UserSubscription {
   };
 }
 
+function compareIsoDatesDescending(left: string | null, right: string | null) {
+  const leftTime = left ? Date.parse(left) : Number.NEGATIVE_INFINITY;
+  const rightTime = right ? Date.parse(right) : Number.NEGATIVE_INFINITY;
+
+  return rightTime - leftTime;
+}
+
+export function selectCurrentSubscriptionRecord(
+  subscriptions: RawSubscription[]
+): RawSubscription | null {
+  if (subscriptions.length === 0) {
+    return null;
+  }
+
+  return [...subscriptions].sort((left, right) => {
+    const leftUsable = ACTIVE_SUBSCRIPTION_STATUSES.includes(left.status) ? 1 : 0;
+    const rightUsable = ACTIVE_SUBSCRIPTION_STATUSES.includes(right.status) ? 1 : 0;
+
+    if (leftUsable !== rightUsable) {
+      return rightUsable - leftUsable;
+    }
+
+    const updatedAtComparison = compareIsoDatesDescending(left.updated_at, right.updated_at);
+
+    if (updatedAtComparison !== 0) {
+      return updatedAtComparison;
+    }
+
+    return compareIsoDatesDescending(left.created_at, right.created_at);
+  })[0] ?? null;
+}
+
 async function getSupabaseClient() {
   return createServerSupabaseClient();
 }
@@ -477,19 +509,20 @@ async function fetchLatestSubscription(
     )
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: false });
 
   if (error) {
     throw new Error(`Failed to fetch current subscription: ${error.message}`);
   }
 
-  if (!data) {
+  const subscriptions = (data as RawSubscription[] | null) ?? [];
+  const selectedSubscription = selectCurrentSubscriptionRecord(subscriptions);
+
+  if (!selectedSubscription) {
     return null;
   }
 
-  const subscription = data as RawSubscription;
-  const plan = relationFirst(subscription.plan);
+  const plan = relationFirst(selectedSubscription.plan);
 
   if (!plan) {
     return null;
@@ -497,7 +530,7 @@ async function fetchLatestSubscription(
 
   return {
     plan: mapPlan(plan),
-    subscription: mapSubscription(subscription)
+    subscription: mapSubscription(selectedSubscription)
   };
 }
 

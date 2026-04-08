@@ -13,7 +13,6 @@ import {
   fetchExamConfigs
 } from "@/features/exams/data/exam-service";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
 import { getCurrentUser } from "@/lib/auth/session";
 
 export default async function ExamSimulatorPage() {
@@ -70,19 +69,15 @@ export default async function ExamSimulatorPage() {
       </section>
     );
   } catch (error) {
-    const message = getPublicErrorMessage(
-      error,
-      "Exam simulator data could not be loaded right now."
-    );
+    console.error("[ExamSimulatorPage]", error);
 
     return (
       <section className="w-full max-w-5xl space-y-6 pb-12">
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           <p className="font-semibold">Unable to load the exam simulator.</p>
           <p className="mt-2 text-sm">
-            Confirm the Phase 4 exam migration and seed SQL has been executed in Supabase.
+            Check your exam simulator setup and refresh the page in a moment.
           </p>
-          <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs">{message}</p>
         </div>
       </section>
     );

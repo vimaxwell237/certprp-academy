@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DragDropCategorizeBoard } from "@/components/ui/drag-drop-categorize-board";
+import { QuestionImageGallery } from "@/components/ui/question-image-gallery";
 import {
   saveExamAnswerAction,
   saveExamFlagAction,
@@ -12,11 +14,29 @@ import {
   submitExamAttemptAction
 } from "@/features/exams/actions/exam-attempt-actions";
 import { formatSecondsLabel } from "@/features/exams/lib/exam-engine";
+import {
+  getQuestionTypeLabel,
+  isDragDropAnswerComplete,
+  setDragDropPlacement
+} from "@/lib/questions/drag-drop";
+import { normalizeSelectedOptionIds } from "@/lib/questions/multiple-choice";
 import type { ExamAttemptState } from "@/types/exam";
+import type { DragDropAnswerPayload } from "@/types/questions";
+
+function cloneDragDropAnswerPayload(
+  payload: DragDropAnswerPayload | null
+): DragDropAnswerPayload {
+  return {
+    placements: { ...(payload?.placements ?? {}) }
+  };
+}
 
 export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
   const router = useRouter();
   const [questions, setQuestions] = useState(attempt.questions);
+  const [dragDropUndoHistory, setDragDropUndoHistory] = useState<
+    Record<string, DragDropAnswerPayload[]>
+  >({});
   const [currentIndex, setCurrentIndex] = useState(
     Math.min(Math.max(attempt.currentQuestionIndex - 1, 0), attempt.questions.length - 1)
   );
@@ -26,9 +46,28 @@ export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasAutoSubmitted, setHasAutoSubmitted] = useState(false);
 
-  const answeredCount = questions.filter((question) => question.selectedOptionId !== null).length;
+  function isQuestionAnswered(question: ExamAttemptState["questions"][number]) {
+    if (question.questionType === "drag_drop_categorize") {
+      return isDragDropAnswerComplete(
+        question.options.map((option) => option.id),
+        question.interactionConfig?.buckets.map((bucket) => bucket.id) ?? [],
+        question.answerPayload as DragDropAnswerPayload | null
+      );
+    }
+
+    if (question.questionType === "multiple_choice") {
+      return question.selectedOptionIds.length > 0;
+    }
+
+    return question.selectedOptionId !== null;
+  }
+
+  const answeredCount = questions.filter((question) => isQuestionAnswered(question)).length;
   const flaggedCount = questions.filter((question) => question.flagged).length;
   const currentQuestion = questions[currentIndex];
+  const canUndoDragDropMove =
+    currentQuestion?.questionType === "drag_drop_categorize" &&
+    (dragDropUndoHistory[currentQuestion.id]?.length ?? 0) > 0;
 
   useEffect(() => {
     if (remainingSeconds <= 0 || isSubmitting) {
@@ -116,13 +155,15 @@ export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
   }
 
   function handleAnswerChange(optionId: string) {
-    if (!currentQuestion || isSubmitting) {
+    if (!currentQuestion || currentQuestion.questionType !== "single_choice" || isSubmitting) {
       return;
     }
 
     setQuestions((existing) =>
       existing.map((question, index) =>
-        index === currentIndex ? { ...question, selectedOptionId: optionId } : question
+        index === currentIndex
+          ? { ...question, selectedOptionId: optionId, selectedOptionIds: [optionId] }
+          : question
       )
     );
     setFeedback(`Answer saved for question ${currentIndex + 1}.`);
@@ -141,6 +182,148 @@ export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
         setFeedback(error instanceof Error ? error.message : "Answer could not be saved.");
       }
     });
+  }
+
+  function handleMultipleChoiceToggle(optionId: string, checked: boolean) {
+    if (!currentQuestion || currentQuestion.questionType !== "multiple_choice" || isSubmitting) {
+      return;
+    }
+
+    const nextSelectedOptionIds = normalizeSelectedOptionIds(
+      checked
+        ? [...currentQuestion.selectedOptionIds, optionId]
+        : currentQuestion.selectedOptionIds.filter((existingOptionId) => existingOptionId !== optionId)
+    );
+
+    setQuestions((existing) =>
+      existing.map((question, index) =>
+        index === currentIndex
+          ? { ...question, selectedOptionId: null, selectedOptionIds: nextSelectedOptionIds }
+          : question
+      )
+    );
+    setFeedback(`Answer saved for question ${currentIndex + 1}.`);
+
+    startTransition(async () => {
+      try {
+        const result = await saveExamAnswerAction({
+          attemptId: attempt.attemptId,
+          questionId: currentQuestion.questionId,
+          selectedOptionIds: nextSelectedOptionIds,
+          currentQuestionIndex: currentIndex + 1
+        });
+
+        handleServerResponse(result);
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : "Answer could not be saved.");
+      }
+    });
+  }
+
+  function persistDragDropAnswer(
+    questionId: string,
+    nextAnswerPayload: DragDropAnswerPayload,
+    optimisticMessage: string,
+    failureMessage: string
+  ) {
+    setFeedback(optimisticMessage);
+
+    startTransition(async () => {
+      try {
+        const result = await saveExamAnswerAction({
+          attemptId: attempt.attemptId,
+          questionId,
+          answerPayload: nextAnswerPayload,
+          currentQuestionIndex: currentIndex + 1
+        });
+
+        handleServerResponse(result);
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : failureMessage);
+      }
+    });
+  }
+
+  function handleDragDropMove(itemId: string, bucketId: string | null) {
+    if (
+      !currentQuestion ||
+      currentQuestion.questionType !== "drag_drop_categorize" ||
+      isSubmitting
+    ) {
+      return;
+    }
+
+    const currentAnswerPayload = currentQuestion.answerPayload as DragDropAnswerPayload | null;
+    const previousBucketId = currentAnswerPayload?.placements[itemId] ?? null;
+
+    if (previousBucketId === bucketId) {
+      return;
+    }
+
+    const previousAnswerPayload = cloneDragDropAnswerPayload(currentAnswerPayload);
+    const nextAnswerPayload = setDragDropPlacement(previousAnswerPayload, itemId, bucketId);
+
+    setDragDropUndoHistory((existing) => ({
+      ...existing,
+      [currentQuestion.id]: [...(existing[currentQuestion.id] ?? []), previousAnswerPayload]
+    }));
+
+    setQuestions((existing) =>
+      existing.map((question, index) =>
+        index === currentIndex ? { ...question, answerPayload: nextAnswerPayload } : question
+      )
+    );
+    persistDragDropAnswer(
+      currentQuestion.questionId,
+      nextAnswerPayload,
+      `Drag-and-drop placement saved for question ${currentIndex + 1}.`,
+      "Drag-and-drop answer could not be saved."
+    );
+  }
+
+  function handleUndoDragDropMove() {
+    if (
+      !currentQuestion ||
+      currentQuestion.questionType !== "drag_drop_categorize" ||
+      isSubmitting
+    ) {
+      return;
+    }
+
+    const questionHistory = dragDropUndoHistory[currentQuestion.id] ?? [];
+    const previousAnswerPayload = questionHistory.at(-1);
+
+    if (!previousAnswerPayload) {
+      return;
+    }
+
+    const restoredAnswerPayload = cloneDragDropAnswerPayload(previousAnswerPayload);
+
+    setDragDropUndoHistory((existing) => {
+      const nextHistory = questionHistory.slice(0, -1);
+
+      if (nextHistory.length === 0) {
+        const { [currentQuestion.id]: _removedHistory, ...remainingHistory } = existing;
+        return remainingHistory;
+      }
+
+      return {
+        ...existing,
+        [currentQuestion.id]: nextHistory
+      };
+    });
+
+    setQuestions((existing) =>
+      existing.map((question, index) =>
+        index === currentIndex ? { ...question, answerPayload: restoredAnswerPayload } : question
+      )
+    );
+    persistDragDropAnswer(
+      currentQuestion.questionId,
+      restoredAnswerPayload,
+      `Last drag-and-drop move undone for question ${currentIndex + 1}.`,
+      "Undo could not be saved."
+    );
   }
 
   function handleFlagToggle() {
@@ -221,11 +404,17 @@ export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
 
   const timerTone =
     remainingSeconds <= 300 ? "text-rose-700" : remainingSeconds <= 900 ? "text-amber-700" : "text-cyan";
+  const isDragDropQuestion = currentQuestion.questionType === "drag_drop_categorize";
+  const isMultipleChoiceQuestion = currentQuestion.questionType === "multiple_choice";
+  const dragDropAnswerPayload =
+    currentQuestion.questionType === "drag_drop_categorize"
+      ? (currentQuestion.answerPayload as DragDropAnswerPayload | null)
+      : null;
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
       <div className="space-y-6">
-        <Card className="space-y-5 border-ink/5">
+        <Card className={`${isDragDropQuestion ? "space-y-4" : "space-y-5"} border-ink/5`}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-2">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan">
@@ -264,7 +453,7 @@ export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
         </Card>
 
         {currentQuestion ? (
-          <Card className="space-y-6 border-ink/5">
+          <Card className={`${isDragDropQuestion ? "space-y-4" : "space-y-6"} border-ink/5`}>
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-cyan/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-cyan">
@@ -272,6 +461,9 @@ export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
                 </span>
                 <span className="rounded-full bg-pearl px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate">
                   {currentQuestion.difficulty}
+                </span>
+                <span className="rounded-full bg-pearl px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate">
+                  {getQuestionTypeLabel(currentQuestion.questionType)}
                 </span>
                 {currentQuestion.moduleTitle ? (
                   <span className="rounded-full bg-pearl px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate">
@@ -285,37 +477,101 @@ export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
                 ) : null}
               </div>
 
-              <h2 className="font-display text-3xl font-semibold text-ink">
+              <h2
+                className={`font-display font-semibold text-ink ${
+                  isDragDropQuestion ? "text-2xl leading-tight" : "text-3xl"
+                }`}
+              >
                 {currentQuestion.questionText}
               </h2>
             </div>
 
-            <div className="space-y-3">
-              {currentQuestion.options.map((option) => {
-                const isSelected = currentQuestion.selectedOptionId === option.id;
+            <QuestionImageGallery
+              images={[
+                {
+                  src: currentQuestion.questionImageUrl,
+                  alt: currentQuestion.questionImageAlt || "Question reference image 1",
+                  key: `${currentQuestion.id}-primary`
+                },
+                {
+                  src: currentQuestion.questionImageSecondaryUrl,
+                  alt:
+                    currentQuestion.questionImageSecondaryAlt || "Question reference image 2",
+                  key: `${currentQuestion.id}-secondary`
+                }
+              ]}
+            />
 
-                return (
-                  <label
-                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-4 transition ${
-                      isSelected
-                        ? "border-cyan/60 bg-cyan/5"
-                        : "border-ink/10 bg-pearl hover:border-cyan/40 hover:bg-white"
-                    }`}
-                    key={option.id}
-                  >
-                    <input
-                      checked={isSelected}
-                      className="mt-1 h-4 w-4 accent-cyan"
-                      disabled={isSubmitting}
-                      name={`question-${currentQuestion.questionId}`}
-                      onChange={() => handleAnswerChange(option.id)}
-                      type="radio"
-                    />
-                    <span className="text-base text-ink">{option.optionText}</span>
-                  </label>
-                );
-              })}
-            </div>
+            {currentQuestion.questionType === "drag_drop_categorize" ? (
+              <DragDropCategorizeBoard
+                buckets={currentQuestion.interactionConfig?.buckets ?? []}
+                items={currentQuestion.options.map((option) => ({
+                  id: option.id,
+                  label: option.optionText,
+                  selectedBucketId: dragDropAnswerPayload?.placements[option.id] ?? null
+                }))}
+                canUndo={canUndoDragDropMove}
+                onMoveItem={handleDragDropMove}
+                onUndoLastMove={handleUndoDragDropMove}
+                variant="compact"
+              />
+            ) : isMultipleChoiceQuestion ? (
+              <div className="space-y-3">
+                {currentQuestion.options.map((option) => {
+                  const isSelected = currentQuestion.selectedOptionIds.includes(option.id);
+
+                  return (
+                    <label
+                      className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-4 transition ${
+                        isSelected
+                          ? "border-cyan/60 bg-cyan/5"
+                          : "border-ink/10 bg-pearl hover:border-cyan/40 hover:bg-white"
+                      }`}
+                      key={option.id}
+                    >
+                      <input
+                        checked={isSelected}
+                        className="mt-1 h-4 w-4 rounded accent-cyan"
+                        disabled={isSubmitting}
+                        name={`question-${currentQuestion.questionId}-${option.id}`}
+                        onChange={(event) =>
+                          handleMultipleChoiceToggle(option.id, event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      <span className="text-base text-ink">{option.optionText}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {currentQuestion.options.map((option) => {
+                  const isSelected = currentQuestion.selectedOptionId === option.id;
+
+                  return (
+                    <label
+                      className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-4 transition ${
+                        isSelected
+                          ? "border-cyan/60 bg-cyan/5"
+                          : "border-ink/10 bg-pearl hover:border-cyan/40 hover:bg-white"
+                      }`}
+                      key={option.id}
+                    >
+                      <input
+                        checked={isSelected}
+                        className="mt-1 h-4 w-4 accent-cyan"
+                        disabled={isSubmitting}
+                        name={`question-${currentQuestion.questionId}`}
+                        onChange={() => handleAnswerChange(option.id)}
+                        type="radio"
+                      />
+                      <span className="text-base text-ink">{option.optionText}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Button
@@ -364,7 +620,7 @@ export function ExamAttemptClient({ attempt }: { attempt: ExamAttemptState }) {
           <div className="grid grid-cols-5 gap-2">
             {questions.map((question, index) => {
               const isCurrent = index === currentIndex;
-              const isAnswered = question.selectedOptionId !== null;
+              const isAnswered = isQuestionAnswered(question);
               const paletteClass = isCurrent
                 ? "border-ink bg-ink text-white"
                 : question.flagged

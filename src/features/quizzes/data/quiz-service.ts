@@ -1,4 +1,5 @@
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/admin";
+import { getQuizQuestionImagePublicUrl } from "@/lib/quiz-question-images";
 import { hasSupabaseServiceRoleEnv } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
@@ -53,7 +54,7 @@ type RawQuizRow = {
   lesson_id: string | null;
   module: RawModuleRef[] | null;
   lesson: RawLessonRef[] | null;
-  questions?: Array<{ id: string }> | null;
+  questions?: Array<{ id: string; show_in_quiz?: boolean }> | null;
 };
 
 type RawQuizQuestionPublic = {
@@ -61,7 +62,12 @@ type RawQuizQuestionPublic = {
   question_text: string;
   difficulty: "easy" | "medium" | "hard";
   order_index: number;
+  show_in_quiz: boolean;
   question_type: "single_choice";
+  question_image_path: string | null;
+  question_image_alt: string;
+  question_image_path_secondary: string | null;
+  question_image_alt_secondary: string;
   options: Array<{
     id: string;
     option_text: string;
@@ -75,13 +81,88 @@ type RawQuizQuestionPrivate = {
   explanation: string;
   difficulty: "easy" | "medium" | "hard";
   order_index: number;
+  show_in_quiz: boolean;
   question_type: "single_choice";
+  question_image_path: string | null;
+  question_image_alt: string;
+  question_image_path_secondary: string | null;
+  question_image_alt_secondary: string;
   options: Array<{
     id: string;
     option_text: string;
     is_correct: boolean;
     order_index: number;
   }> | null;
+};
+
+type RpcQuizDetailRow = {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  course_title: string;
+  course_slug: string;
+  module_title: string | null;
+  module_slug: string | null;
+  lesson_title: string | null;
+  lesson_slug: string | null;
+  questions: Array<{
+    id: string;
+    question_text: string;
+    difficulty: "easy" | "medium" | "hard";
+    order_index: number;
+    question_type: "single_choice";
+    question_image_path: string | null;
+    question_image_alt: string;
+    question_image_path_secondary: string | null;
+    question_image_alt_secondary: string;
+    options: Array<{
+      id: string;
+      option_text: string;
+      order_index: number;
+    }> | null;
+  }> | null;
+};
+
+type RpcQuizAttemptResultRow = {
+  attempt_id: string;
+  quiz_title: string;
+  quiz_slug: string;
+  description: string;
+  score: number;
+  total_questions: number;
+  correct_answers: number;
+  completed_at: string | null;
+  course_title: string;
+  course_slug: string;
+  module_title: string | null;
+  module_slug: string | null;
+  review: Array<{
+    id: string;
+    question_text: string;
+    explanation: string;
+    difficulty: "easy" | "medium" | "hard";
+    question_image_path: string | null;
+    question_image_alt: string;
+    question_image_path_secondary: string | null;
+    question_image_alt_secondary: string;
+    is_correct: boolean;
+    selected_option_id: string | null;
+    correct_option_id: string | null;
+    options: Array<{
+      id: string;
+      option_text: string;
+      is_correct: boolean;
+      is_selected: boolean;
+    }> | null;
+  }> | null;
+};
+
+type RpcQuizSubmitResultRow = {
+  attempt_id: string;
+  score: number;
+  total_questions: number;
+  correct_answers: number;
 };
 
 type RawAttemptRow = {
@@ -178,7 +259,7 @@ async function fetchAttemptRows(
   quizIds?: string[],
   client?: ReadSupabaseClient
 ) {
-  const supabase = client ?? (await getSupabaseClient());
+  const supabase = client ?? (await getReadSupabaseClient());
 
   if (!supabase) {
     return [];
@@ -215,7 +296,7 @@ export async function fetchQuizList(userId: string): Promise<QuizListItem[]> {
     ? await supabase
         .from("quizzes")
         .select(
-          "id,title,slug,description,module_id,lesson_id,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug,module:modules(id,title,slug,course:courses(title,slug))),questions:quiz_questions(id)"
+          "id,title,slug,description,module_id,lesson_id,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug,module:modules(id,title,slug,course:courses(title,slug))),questions:quiz_questions(id,show_in_quiz)"
         )
         .eq("is_published", true)
         .order("created_at", { ascending: true })
@@ -247,7 +328,8 @@ export async function fetchQuizList(userId: string): Promise<QuizListItem[]> {
       title: quiz.title,
       slug: quiz.slug,
       description: quiz.description,
-      questionCount: quiz.questions?.length ?? 0,
+      questionCount:
+        quiz.questions?.filter((question) => question.show_in_quiz !== false).length ?? 0,
       courseTitle: context.courseTitle,
       courseSlug: context.courseSlug,
       moduleTitle: context.moduleTitle,
@@ -265,6 +347,10 @@ export async function fetchQuizDetail(
   userId: string,
   quizSlug: string
 ): Promise<QuizDetail | null> {
+  if (!hasSupabaseServiceRoleEnv()) {
+    return fetchQuizDetailWithRpc(userId, quizSlug);
+  }
+
   const supabase = await getSupabaseClient();
 
   if (!supabase) {
@@ -274,7 +360,7 @@ export async function fetchQuizDetail(
   const { data, error } = await supabase
     .from("quizzes")
     .select(
-      "id,title,slug,description,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug,module:modules(id,title,slug,course:courses(title,slug))),questions:quiz_questions(id,question_text,difficulty,order_index,question_type,options:question_options(id,option_text,order_index))"
+      "id,title,slug,description,module:modules(id,title,slug,course:courses(title,slug)),lesson:lessons(id,title,slug,module:modules(id,title,slug,course:courses(title,slug))),questions:quiz_questions(id,question_text,difficulty,order_index,show_in_quiz,question_type,question_image_path,question_image_alt,question_image_path_secondary,question_image_alt_secondary,options:question_options(id,option_text,order_index))"
     )
     .eq("slug", quizSlug)
     .eq("is_published", true)
@@ -295,6 +381,7 @@ export async function fetchQuizDetail(
   const metrics = buildQuizAttemptMetrics(quiz.id, attempts);
   const context = resolveQuizContext(quiz);
   const questions = [...(quiz.questions ?? [])]
+    .filter((question) => question.show_in_quiz !== false)
     .sort((a, b) => a.order_index - b.order_index)
     .map((question) => ({
       id: question.id,
@@ -302,6 +389,16 @@ export async function fetchQuizDetail(
       orderIndex: question.order_index,
       questionType: question.question_type,
       difficulty: question.difficulty,
+      questionImageUrl: getQuizQuestionImagePublicUrl(
+        supabase,
+        question.question_image_path
+      ),
+      questionImageAlt: question.question_image_alt,
+      questionImageSecondaryUrl: getQuizQuestionImagePublicUrl(
+        supabase,
+        question.question_image_path_secondary
+      ),
+      questionImageSecondaryAlt: question.question_image_alt_secondary,
       options: [...(question.options ?? [])]
         .sort((a, b) => a.order_index - b.order_index)
         .map((option) => ({
@@ -329,6 +426,76 @@ export async function fetchQuizDetail(
   };
 }
 
+async function fetchQuizDetailWithRpc(
+  userId: string,
+  quizSlug: string
+): Promise<QuizDetail | null> {
+  const supabase = await createServerSupabaseClient();
+
+  if (!supabase) {
+    return null;
+  }
+
+  const { data, error } = await supabase.rpc("get_published_quiz_detail", {
+    target_quiz_slug: quizSlug
+  });
+
+  if (error) {
+    throw new Error(`Failed to fetch quiz detail: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const quiz = data as RpcQuizDetailRow;
+  const attempts = await fetchAttemptRows(userId, [quiz.id], supabase);
+  const metrics = buildQuizAttemptMetrics(quiz.id, attempts);
+  const questions = [...(quiz.questions ?? [])]
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((question) => ({
+      id: question.id,
+      questionText: question.question_text,
+      orderIndex: question.order_index,
+      questionType: question.question_type,
+      difficulty: question.difficulty,
+      questionImageUrl: getQuizQuestionImagePublicUrl(
+        supabase,
+        question.question_image_path
+      ),
+      questionImageAlt: question.question_image_alt,
+      questionImageSecondaryUrl: getQuizQuestionImagePublicUrl(
+        supabase,
+        question.question_image_path_secondary
+      ),
+      questionImageSecondaryAlt: question.question_image_alt_secondary,
+      options: [...(question.options ?? [])]
+        .sort((a, b) => a.order_index - b.order_index)
+        .map((option) => ({
+          id: option.id,
+          optionText: option.option_text,
+          orderIndex: option.order_index
+        }))
+    }));
+
+  return {
+    id: quiz.id,
+    title: quiz.title,
+    slug: quiz.slug,
+    description: quiz.description,
+    questionCount: questions.length,
+    courseTitle: quiz.course_title,
+    courseSlug: quiz.course_slug,
+    moduleTitle: quiz.module_title,
+    moduleSlug: quiz.module_slug,
+    lessonTitle: quiz.lesson_title,
+    lessonSlug: quiz.lesson_slug,
+    attemptsTaken: metrics.attemptsTaken,
+    latestScore: metrics.latestScore,
+    questions
+  };
+}
+
 async function fetchQuizForScoring(
   quizSlug: string,
   client: ServerSupabaseClient
@@ -336,7 +503,7 @@ async function fetchQuizForScoring(
   const { data, error } = await client
     .from("quizzes")
     .select(
-      "id,title,slug,is_published,questions:quiz_questions(id,question_text,explanation,difficulty,order_index,question_type,options:question_options(id,option_text,is_correct,order_index))"
+      "id,title,slug,is_published,questions:quiz_questions(id,question_text,explanation,difficulty,order_index,show_in_quiz,question_type,question_image_path,question_image_alt,question_image_path_secondary,question_image_alt_secondary,options:question_options(id,option_text,is_correct,order_index))"
     )
     .eq("slug", quizSlug)
     .eq("is_published", true)
@@ -363,6 +530,10 @@ export async function submitQuizAttemptAndStore(
   quizSlug: string,
   submittedAnswers: Record<string, string | null>
 ) {
+  if (!hasSupabaseServiceRoleEnv()) {
+    return submitQuizAttemptAndStoreWithRpc(userId, quizSlug, submittedAnswers);
+  }
+
   const supabase = await getSupabaseClient();
 
   if (!supabase) {
@@ -375,9 +546,9 @@ export async function submitQuizAttemptAndStore(
     throw new Error("Quiz was not found or is not published.");
   }
 
-  const sortedQuestions = [...(quiz.questions ?? [])].sort(
-    (a, b) => a.order_index - b.order_index
-  );
+  const sortedQuestions = [...(quiz.questions ?? [])]
+    .filter((question) => question.show_in_quiz !== false)
+    .sort((a, b) => a.order_index - b.order_index);
 
   if (sortedQuestions.length === 0) {
     throw new Error("Quiz does not contain any questions yet.");
@@ -440,11 +611,49 @@ export async function submitQuizAttemptAndStore(
   };
 }
 
+async function submitQuizAttemptAndStoreWithRpc(
+  _userId: string,
+  quizSlug: string,
+  submittedAnswers: Record<string, string | null>
+) {
+  const supabase = await createServerSupabaseClient();
+
+  if (!supabase) {
+    throw new Error("Supabase client is not available.");
+  }
+
+  const { data, error } = await supabase.rpc("submit_published_quiz_attempt", {
+    target_quiz_slug: quizSlug,
+    submitted_answers: submittedAnswers
+  });
+
+  if (error) {
+    throw new Error(`Failed to submit quiz attempt: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error("Quiz was not found or is not published.");
+  }
+
+  const result = data as RpcQuizSubmitResultRow;
+
+  return {
+    attemptId: result.attempt_id,
+    score: result.score,
+    totalQuestions: result.total_questions,
+    correctAnswers: result.correct_answers
+  };
+}
+
 export async function fetchQuizAttemptResult(
   userId: string,
   quizSlug: string,
   attemptId: string
 ): Promise<QuizAttemptResult | null> {
+  if (!hasSupabaseServiceRoleEnv()) {
+    return fetchQuizAttemptResultWithRpc(userId, quizSlug, attemptId);
+  }
+
   const supabase = await getSupabaseClient();
 
   if (!supabase) {
@@ -480,7 +689,7 @@ export async function fetchQuizAttemptResult(
   const { data: questionsData, error: questionsError } = await supabase
     .from("quiz_questions")
     .select(
-      "id,question_text,explanation,difficulty,order_index,question_type,options:question_options(id,option_text,is_correct,order_index)"
+      "id,question_text,explanation,difficulty,order_index,show_in_quiz,question_type,question_image_path,question_image_alt,question_image_path_secondary,question_image_alt_secondary,options:question_options(id,option_text,is_correct,order_index)"
     )
     .eq("quiz_id", quiz.id as string)
     .order("order_index", { ascending: true });
@@ -506,8 +715,9 @@ export async function fetchQuizAttemptResult(
     }> | null) ?? []).map((answer) => [answer.question_id, answer])
   );
 
-  const review = ((questionsData as RawQuizQuestionPrivate[] | null) ?? []).map(
-    (question) => {
+  const review = ((questionsData as RawQuizQuestionPrivate[] | null) ?? [])
+    .filter((question) => answersByQuestionId.has(question.id))
+    .map((question) => {
       const answer = answersByQuestionId.get(question.id);
       const options = [...(question.options ?? [])].sort(
         (a, b) => a.order_index - b.order_index
@@ -519,6 +729,16 @@ export async function fetchQuizAttemptResult(
         questionText: question.question_text,
         explanation: question.explanation,
         difficulty: question.difficulty,
+        questionImageUrl: getQuizQuestionImagePublicUrl(
+          supabase,
+          question.question_image_path
+        ),
+        questionImageAlt: question.question_image_alt,
+        questionImageSecondaryUrl: getQuizQuestionImagePublicUrl(
+          supabase,
+          question.question_image_path_secondary
+        ),
+        questionImageSecondaryAlt: question.question_image_alt_secondary,
         isCorrect: Boolean(answer?.is_correct),
         selectedOptionId: answer?.selected_option_id ?? null,
         correctOptionId: correctOption?.id ?? null,
@@ -529,8 +749,7 @@ export async function fetchQuizAttemptResult(
           isSelected: answer?.selected_option_id === option.id
         }))
       };
-    }
-  );
+    });
 
   return {
     attemptId: attempt.id,
@@ -547,6 +766,74 @@ export async function fetchQuizAttemptResult(
     moduleTitle: context.moduleTitle,
     moduleSlug: context.moduleSlug,
     review
+  };
+}
+
+async function fetchQuizAttemptResultWithRpc(
+  _userId: string,
+  quizSlug: string,
+  attemptId: string
+): Promise<QuizAttemptResult | null> {
+  const supabase = await createServerSupabaseClient();
+
+  if (!supabase) {
+    return null;
+  }
+
+  const { data, error } = await supabase.rpc("get_quiz_attempt_review", {
+    target_attempt_id: attemptId,
+    target_quiz_slug: quizSlug
+  });
+
+  if (error) {
+    throw new Error(`Failed to fetch quiz attempt: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const result = data as RpcQuizAttemptResultRow;
+
+  return {
+    attemptId: result.attempt_id,
+    quizTitle: result.quiz_title,
+    quizSlug: result.quiz_slug,
+    description: result.description,
+    score: result.score,
+    totalQuestions: result.total_questions,
+    correctAnswers: result.correct_answers,
+    incorrectAnswers: result.total_questions - result.correct_answers,
+    completedAt: result.completed_at,
+    courseTitle: result.course_title,
+    courseSlug: result.course_slug,
+    moduleTitle: result.module_title,
+    moduleSlug: result.module_slug,
+    review: [...(result.review ?? [])].map((question) => ({
+      id: question.id,
+      questionText: question.question_text,
+      explanation: question.explanation,
+      difficulty: question.difficulty,
+      questionImageUrl: getQuizQuestionImagePublicUrl(
+        supabase,
+        question.question_image_path
+      ),
+      questionImageAlt: question.question_image_alt,
+      questionImageSecondaryUrl: getQuizQuestionImagePublicUrl(
+        supabase,
+        question.question_image_path_secondary
+      ),
+      questionImageSecondaryAlt: question.question_image_alt_secondary,
+      isCorrect: question.is_correct,
+      selectedOptionId: question.selected_option_id,
+      correctOptionId: question.correct_option_id,
+      options: [...(question.options ?? [])].map((option) => ({
+        id: option.id,
+        optionText: option.option_text,
+        isCorrect: option.is_correct,
+        isSelected: option.is_selected
+      }))
+    }))
   };
 }
 
@@ -615,7 +902,7 @@ export async function fetchModuleQuizIndex(
   const { data, error } = canReadQuestionCounts
     ? await supabase
         .from("quizzes")
-        .select("id,title,slug,description,module_id,questions:quiz_questions(id)")
+        .select("id,title,slug,description,module_id,questions:quiz_questions(id,show_in_quiz)")
         .in("module_id", moduleIds)
         .eq("is_published", true)
     : await supabase
@@ -634,7 +921,7 @@ export async function fetchModuleQuizIndex(
     slug: string;
     description: string;
     module_id: string | null;
-    questions: Array<{ id: string }> | null;
+    questions: Array<{ id: string; show_in_quiz?: boolean }> | null;
   }> | null) ?? []);
   const attempts = await fetchAttemptRows(
     userId,
@@ -654,7 +941,8 @@ export async function fetchModuleQuizIndex(
       title: quiz.title,
       slug: quiz.slug,
       description: quiz.description,
-      questionCount: quiz.questions?.length ?? 0,
+      questionCount:
+        quiz.questions?.filter((question) => question.show_in_quiz !== false).length ?? 0,
       attemptsTaken: metrics.attemptsTaken,
       latestScore: metrics.latestScore
     };
@@ -721,7 +1009,7 @@ export async function fetchRelatedQuizForLessonContext(
       ? await supabase
           .from("quizzes")
           .select(
-            "id,title,slug,description,module_id,lesson_id,questions:quiz_questions(id)"
+            "id,title,slug,description,module_id,lesson_id,questions:quiz_questions(id,show_in_quiz)"
           )
           .eq("is_published", true)
           .eq("lesson_id", lessonData.id as string)
@@ -739,7 +1027,7 @@ export async function fetchRelatedQuizForLessonContext(
         title: string;
         slug: string;
         description: string;
-        questions?: Array<{ id: string }> | null;
+        questions?: Array<{ id: string; show_in_quiz?: boolean }> | null;
       };
       const attempts = await fetchAttemptRows(userId, [resolvedLessonQuiz.id], supabase);
       const metrics = buildQuizAttemptMetrics(resolvedLessonQuiz.id, attempts);
@@ -750,7 +1038,9 @@ export async function fetchRelatedQuizForLessonContext(
         slug: resolvedLessonQuiz.slug,
         description: resolvedLessonQuiz.description,
         questionCount:
-          (resolvedLessonQuiz.questions ?? []).length,
+          (resolvedLessonQuiz.questions ?? []).filter(
+            (question) => question.show_in_quiz !== false
+          ).length,
         attemptsTaken: metrics.attemptsTaken,
         latestScore: metrics.latestScore
       };
@@ -760,7 +1050,7 @@ export async function fetchRelatedQuizForLessonContext(
   const { data: moduleQuizData, error: moduleQuizError } = canReadQuestionCounts
     ? await supabase
         .from("quizzes")
-        .select("id,title,slug,description,module_id,questions:quiz_questions(id)")
+        .select("id,title,slug,description,module_id,questions:quiz_questions(id,show_in_quiz)")
         .eq("module_id", moduleData.id as string)
         .eq("is_published", true)
         .maybeSingle()
@@ -784,7 +1074,7 @@ export async function fetchRelatedQuizForLessonContext(
     title: string;
     slug: string;
     description: string;
-    questions?: Array<{ id: string }> | null;
+    questions?: Array<{ id: string; show_in_quiz?: boolean }> | null;
   };
   const attempts = await fetchAttemptRows(userId, [resolvedModuleQuiz.id], supabase);
   const metrics = buildQuizAttemptMetrics(resolvedModuleQuiz.id, attempts);
@@ -794,7 +1084,10 @@ export async function fetchRelatedQuizForLessonContext(
     title: resolvedModuleQuiz.title,
     slug: resolvedModuleQuiz.slug,
     description: resolvedModuleQuiz.description,
-    questionCount: (resolvedModuleQuiz.questions ?? []).length,
+    questionCount:
+      (resolvedModuleQuiz.questions ?? []).filter(
+        (question) => question.show_in_quiz !== false
+      ).length,
     attemptsTaken: metrics.attemptsTaken,
     latestScore: metrics.latestScore
   };

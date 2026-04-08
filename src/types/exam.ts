@@ -1,3 +1,10 @@
+import type {
+  DragDropAnswerPayload,
+  DragDropInteractionConfig,
+  MultipleChoiceAnswerPayload,
+  QuestionType
+} from "@/types/questions";
+
 export type ExamMode = "full_mock" | "quick_practice" | "random_mixed";
 
 export type ExamAttemptStatus = "in_progress" | "submitted" | "timed_out";
@@ -30,6 +37,9 @@ export interface ExamConfigListItem {
 }
 
 export interface ExamConfigDetail extends ExamConfigListItem {
+  activeAttemptId: string | null;
+  activeAttemptStartedAt: string | null;
+  activeAttemptExpiresAt: string | null;
   recentAttempts: ExamHistoryItem[];
 }
 
@@ -48,8 +58,15 @@ export interface ExamAttemptQuestion {
   questionText: string;
   explanation: string;
   difficulty: "easy" | "medium" | "hard";
-  questionType: "single_choice";
+  questionType: QuestionType;
+  interactionConfig: DragDropInteractionConfig | null;
+  questionImageUrl: string | null;
+  questionImageAlt: string;
+  questionImageSecondaryUrl: string | null;
+  questionImageSecondaryAlt: string;
   selectedOptionId: string | null;
+  selectedOptionIds: string[];
+  answerPayload: DragDropAnswerPayload | MultipleChoiceAnswerPayload | null;
   flagged: boolean;
   options: ExamAttemptQuestionOption[];
 }
@@ -77,6 +94,8 @@ export interface ExamResultReviewOption {
   optionText: string;
   isCorrect: boolean;
   isSelected: boolean;
+  correctBucketId: string | null;
+  selectedBucketId: string | null;
 }
 
 export interface ExamResultReviewQuestion {
@@ -87,10 +106,18 @@ export interface ExamResultReviewQuestion {
   moduleTitle: string | null;
   moduleSlug: string | null;
   difficulty: "easy" | "medium" | "hard";
+  questionType: QuestionType;
+  interactionConfig: DragDropInteractionConfig | null;
+  questionImageUrl: string | null;
+  questionImageAlt: string;
+  questionImageSecondaryUrl: string | null;
+  questionImageSecondaryAlt: string;
   flagged: boolean;
   isCorrect: boolean;
   selectedOptionId: string | null;
+  selectedOptionIds: string[];
   correctOptionId: string | null;
+  correctOptionIds: string[];
   options: ExamResultReviewOption[];
 }
 

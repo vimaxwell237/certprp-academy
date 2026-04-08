@@ -11,6 +11,7 @@ import {
   saveAdminModule,
   saveAdminPlan,
   saveAdminQuiz,
+  saveAdminQuizQuestion,
   saveAdminTutor,
   setCertificationPublishState,
   setCliChallengePublishState,
@@ -23,12 +24,15 @@ import {
   setTutorActiveState
 } from "@/features/admin/data/admin-service";
 import {
+  AdminFormError,
   readBoolean,
   readDifficulty,
   readExpertiseList,
+  readOptionalFile,
   readNonNegativeInteger,
   readOptionalId,
   readOptionalText,
+  readQuestionType,
   readOptionalUrl,
   readPlanInterval,
   readPositiveInteger,
@@ -39,9 +43,14 @@ import {
   toActionErrorState,
   toActionSuccessState
 } from "@/features/admin/lib/validation";
+import {
+  buildDragDropBucketsFromLabels,
+  parseDragDropItemLines,
+  splitMultilineEntries
+} from "@/lib/questions/drag-drop";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 import { requireAdminUser } from "@/lib/auth/roles";
-import type { AdminActionState } from "@/types/admin";
+import type { AdminActionState, QuizQuestionMutationInput } from "@/types/admin";
 
 function revalidatePaths(paths: string[]) {
   for (const path of paths) {
@@ -189,6 +198,168 @@ export async function saveQuizAction(
       message: "Quiz saved."
     };
   }, [APP_ROUTES.admin, APP_ROUTES.adminQuizzes, APP_ROUTES.quizzes]);
+}
+
+export async function saveQuizQuestionAction(
+  _previousState: AdminActionState,
+  formData: FormData
+) {
+  return handleAdminAction(async () => {
+    const questionType = readQuestionType(formData);
+    const difficulty = readRequiredText(formData, "difficulty", "Difficulty");
+
+    if (!["easy", "medium", "hard"].includes(difficulty)) {
+      throw new AdminFormError("Question difficulty is invalid.", {
+        difficulty: "Select easy, medium, or hard."
+      });
+    }
+
+    let showInQuiz = readBoolean(formData, "showInQuiz");
+    let interactionConfig: QuizQuestionMutationInput["interactionConfig"] = null;
+    let options: QuizQuestionMutationInput["options"] = [];
+
+    if (questionType === "drag_drop_categorize") {
+      const bucketLines = readRequiredText(
+        formData,
+        "dragDropBucketLines",
+        "Bucket labels"
+      );
+      const itemLines = readRequiredText(
+        formData,
+        "dragDropItemLines",
+        "Drag-and-drop items"
+      );
+      const bucketLabels = splitMultilineEntries(bucketLines);
+
+      if (bucketLabels.length < 2) {
+        throw new AdminFormError("Add at least two buckets for drag-and-drop questions.", {
+          dragDropBucketLines: "Add at least two bucket labels, one per line."
+        });
+      }
+
+      if (new Set(bucketLabels.map((label) => label.toLowerCase())).size !== bucketLabels.length) {
+        throw new AdminFormError("Bucket labels must be unique.", {
+          dragDropBucketLines: "Use unique bucket labels so every draggable item maps clearly."
+        });
+      }
+
+      const buckets = buildDragDropBucketsFromLabels(bucketLabels);
+      let dragDropItems;
+
+      try {
+        dragDropItems = parseDragDropItemLines(itemLines, buckets);
+      } catch (error) {
+        throw new AdminFormError(
+          error instanceof Error ? error.message : "Drag-and-drop items are invalid.",
+          {
+            dragDropItemLines:
+              error instanceof Error
+                ? error.message
+                : "Use one item per line in the format statement | bucket label."
+          }
+        );
+      }
+
+      if (dragDropItems.length < 2) {
+        throw new AdminFormError(
+          "Add at least two draggable items for a drag-and-drop question.",
+          {
+            dragDropItemLines:
+              "Add at least two draggable items in the format statement | bucket label."
+          }
+        );
+      }
+
+      interactionConfig = { buckets };
+      showInQuiz = false;
+      options = dragDropItems.map((item, index) => ({
+        optionText: item.optionText,
+        isCorrect: false,
+        matchKey: item.matchKey,
+        orderIndex: index + 1
+      }));
+    } else {
+      const optionCount = readPositiveInteger(formData, "optionCount", "Option count");
+
+      if (optionCount < 2 || optionCount > 6) {
+        throw new AdminFormError("Choice questions must have between 2 and 6 options.", {
+          optionCount: "Use between 2 and 6 answer choices."
+        });
+      }
+
+      let correctOption = 0;
+
+      if (questionType === "single_choice") {
+        const correctOptionRaw = readRequiredText(
+          formData,
+          "correctOption",
+          "Correct option"
+        );
+
+        correctOption = Number(correctOptionRaw);
+
+        if (
+          !Number.isInteger(correctOption) ||
+          correctOption < 1 ||
+          correctOption > optionCount
+        ) {
+          throw new AdminFormError("Choose a valid correct option.", {
+            correctOption: "Choose which option is correct."
+          });
+        }
+      } else {
+        showInQuiz = false;
+      }
+
+      options = Array.from({ length: optionCount }, (_, index) => {
+        const optionIndex = index + 1;
+
+        return {
+          optionText: readRequiredText(
+            formData,
+            `option${optionIndex}Text`,
+            `Answer option ${optionIndex}`
+          ),
+          isCorrect:
+            questionType === "single_choice"
+              ? correctOption === optionIndex
+              : readBoolean(formData, `option${optionIndex}Correct`),
+          matchKey: null,
+          orderIndex: optionIndex
+        };
+      });
+    }
+
+    const id = await saveAdminQuizQuestion({
+      id: readRecordId(formData),
+      quizId: readRequiredId(formData, "quizId", "Quiz"),
+      questionText: readRequiredText(formData, "questionText", "Question"),
+      explanation: readOptionalText(formData, "explanation"),
+      difficulty: difficulty as "easy" | "medium" | "hard",
+      orderIndex: readPositiveInteger(formData, "orderIndex", "Order index"),
+      questionType,
+      showInQuiz,
+      interactionConfig,
+      questionImageAlt: readOptionalText(formData, "questionImageAlt"),
+      questionImageFile: readOptionalFile(formData, "questionImage"),
+      removeQuestionImage: readBoolean(formData, "removeQuestionImage"),
+      questionImageSecondaryAlt: readOptionalText(formData, "questionImageSecondaryAlt"),
+      questionImageSecondaryFile: readOptionalFile(formData, "questionImageSecondary"),
+      removeQuestionImageSecondary: readBoolean(formData, "removeQuestionImageSecondary"),
+      options
+    });
+
+    return {
+      id,
+      message: "Quiz question saved."
+    };
+  }, [
+    APP_ROUTES.admin,
+    APP_ROUTES.adminExamSimulator,
+    APP_ROUTES.adminQuizzes,
+    APP_ROUTES.quizzes,
+    APP_ROUTES.examSimulator
+  ]);
 }
 
 export async function saveLabAction(

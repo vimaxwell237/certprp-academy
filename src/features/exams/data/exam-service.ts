@@ -1,8 +1,23 @@
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/admin";
+import { hasSupabaseServiceRoleEnv } from "@/lib/supabase/config";
+import { getQuizQuestionImagePublicUrl } from "@/lib/quiz-question-images";
+import {
+  isDragDropAnswerComplete,
+  isDragDropAnswerCorrect,
+  normalizeDragDropAnswerPayload,
+  normalizeDragDropInteractionConfig
+} from "@/lib/questions/drag-drop";
+import {
+  buildMultipleChoiceAnswerPayload,
+  isMultipleChoiceCorrect,
+  normalizeMultipleChoiceAnswerPayload,
+  normalizeSelectedOptionIds
+} from "@/lib/questions/multiple-choice";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   calculateExamScore,
   clampTimeUsed,
+  isExamAnswerAnswered,
   selectExamQuestions,
   type ExamAnswerKey,
   type ExamBankQuestion
@@ -16,6 +31,7 @@ import type {
   ExamDomainPerformance,
   ExamHistoryItem
 } from "@/types/exam";
+import type { MultipleChoiceAnswerPayload, QuestionType } from "@/types/questions";
 
 type ServerSupabaseClient = NonNullable<
   Awaited<ReturnType<typeof createServiceRoleSupabaseClient>>
@@ -68,16 +84,29 @@ type RawQuizBankRow = {
     title: string;
     slug: string;
   }>;
+  lesson: RelationValue<{
+    module: RelationValue<{
+      title: string;
+      slug: string;
+    }>;
+  }>;
   questions: Array<{
     id: string;
     question_text: string;
     explanation: string;
     difficulty: "easy" | "medium" | "hard";
-    question_type: "single_choice";
+    show_in_quiz: boolean;
+    question_type: QuestionType;
+    interaction_config: Record<string, unknown> | null;
+    question_image_path: string | null;
+    question_image_alt: string;
+    question_image_path_secondary: string | null;
+    question_image_alt_secondary: string;
     options: Array<{
       id: string;
       option_text: string;
       is_correct: boolean;
+      match_key: string | null;
       order_index: number;
     }> | null;
   }> | null;
@@ -93,18 +122,30 @@ type RawAttemptAnswerRow = {
   question_text_snapshot: string;
   explanation_snapshot: string;
   difficulty_snapshot: "easy" | "medium" | "hard";
-  question_type_snapshot: "single_choice";
+  question_type_snapshot: QuestionType;
+  interaction_config_snapshot: Record<string, unknown> | null;
+  question_image_path_snapshot: string | null;
+  question_image_alt_snapshot: string;
+  question_image_path_secondary_snapshot: string | null;
+  question_image_alt_secondary_snapshot: string;
+  answer_payload: Record<string, unknown> | null;
   options_snapshot:
     | Array<{
         id: string;
         optionText: string;
         orderIndex: number;
         isCorrect: boolean;
+        matchKey: string | null;
       }>
     | null;
   correct_option_id: string | null;
   flagged: boolean;
   is_correct: boolean | null;
+};
+
+type RpcStartedExamAttemptRow = {
+  attempt_id: string;
+  exam_slug: string;
 };
 
 function relationFirst<T>(value: RelationValue<T> | undefined): T | null {
@@ -115,8 +156,57 @@ function relationFirst<T>(value: RelationValue<T> | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-async function getSupabaseClient() {
-  return createServiceRoleSupabaseClient();
+function buildExamAnswerKey(answer: RawAttemptAnswerRow): ExamAnswerKey {
+  if (answer.question_type_snapshot === "drag_drop_categorize") {
+    const interactionConfig = normalizeDragDropInteractionConfig(
+      answer.interaction_config_snapshot
+    );
+
+    return {
+      questionType: "drag_drop_categorize",
+      answerPayload: normalizeDragDropAnswerPayload(answer.answer_payload),
+      items: [...(answer.options_snapshot ?? [])].map((option) => ({
+        id: option.id,
+        matchKey: option.matchKey
+      })),
+      bucketIds: interactionConfig?.buckets.map((bucket) => bucket.id) ?? []
+    };
+  }
+
+  const correctOptionIds = [...(answer.options_snapshot ?? [])]
+    .filter((option) => option.isCorrect)
+    .map((option) => option.id);
+
+  if (answer.question_type_snapshot === "multiple_choice") {
+    return {
+      questionType: "multiple_choice",
+      correctOptionIds,
+      selectedOptionIds:
+        normalizeMultipleChoiceAnswerPayload(answer.answer_payload)?.selectedOptionIds ?? []
+    };
+  }
+
+  return {
+    questionType: "single_choice",
+    correctOptionIds,
+    selectedOptionIds: answer.selected_option_id ? [answer.selected_option_id] : []
+  };
+}
+
+function resolveSelectedOptionIds(answer: RawAttemptAnswerRow) {
+  if (answer.question_type_snapshot === "multiple_choice") {
+    return normalizeMultipleChoiceAnswerPayload(answer.answer_payload)?.selectedOptionIds ?? [];
+  }
+
+  return answer.selected_option_id ? [answer.selected_option_id] : [];
+}
+
+async function getReadSupabaseClient() {
+  if (hasSupabaseServiceRoleEnv()) {
+    return createServiceRoleSupabaseClient();
+  }
+
+  return createServerSupabaseClient();
 }
 
 function buildExamHistoryItem(attempt: RawExamAttemptRow): ExamHistoryItem {
@@ -159,7 +249,7 @@ async function fetchExamAttemptRows(
   examConfigIds?: string[],
   client?: ReadSupabaseClient
 ) {
-  const supabase = client ?? (await getSupabaseClient());
+  const supabase = client ?? (await getReadSupabaseClient());
 
   if (!supabase) {
     return [];
@@ -187,7 +277,7 @@ async function fetchExamAttemptRows(
 }
 
 export async function fetchExamConfigs(userId: string): Promise<ExamConfigListItem[]> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     return [];
@@ -236,7 +326,7 @@ export async function fetchExamConfigDetail(
   userId: string,
   examSlug: string
 ): Promise<ExamConfigDetail | null> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     return null;
@@ -262,6 +352,13 @@ export async function fetchExamConfigDetail(
   const config = data as RawExamConfig;
   const attempts = await fetchExamAttemptRows(userId, [config.id], supabase);
   const metrics = buildConfigMetrics(config.id, attempts);
+  const activeAttempt =
+    attempts.find(
+      (attempt) =>
+        attempt.status === "in_progress" &&
+        new Date(attempt.expires_at).getTime() > Date.now()
+    ) ?? null;
+  const completedAttempts = attempts.filter((attempt) => attempt.status !== "in_progress");
 
   return {
     id: config.id,
@@ -276,7 +373,10 @@ export async function fetchExamConfigDetail(
     latestScore: metrics.latestScore,
     bestScore: metrics.bestScore,
     lastAttemptAt: metrics.lastAttemptAt,
-    recentAttempts: attempts.slice(0, 5).map(buildExamHistoryItem)
+    activeAttemptId: activeAttempt?.id ?? null,
+    activeAttemptStartedAt: activeAttempt?.started_at ?? null,
+    activeAttemptExpiresAt: activeAttempt?.expires_at ?? null,
+    recentAttempts: completedAttempts.slice(0, 5).map(buildExamHistoryItem)
   };
 }
 
@@ -284,7 +384,7 @@ async function fetchExamQuestionBank(client: ServerSupabaseClient) {
   const { data, error } = await client
     .from("quizzes")
     .select(
-      "module:modules(title,slug),questions:quiz_questions(id,question_text,explanation,difficulty,question_type,options:question_options(id,option_text,is_correct,order_index))"
+      "module:modules(title,slug),lesson:lessons(module:modules(title,slug)),questions:quiz_questions(id,question_text,explanation,difficulty,show_in_quiz,question_type,interaction_config,question_image_path,question_image_alt,question_image_path_secondary,question_image_alt_secondary,options:question_options(id,option_text,is_correct,match_key,order_index))"
     )
     .eq("is_published", true);
 
@@ -295,22 +395,31 @@ async function fetchExamQuestionBank(client: ServerSupabaseClient) {
   const quizRows = (data as RawQuizBankRow[] | null) ?? [];
 
   return quizRows.flatMap<ExamBankQuestion>((quiz) => {
-    const moduleRef = relationFirst(quiz.module);
+    const moduleRef =
+      relationFirst(quiz.module) ??
+      relationFirst(relationFirst(quiz.lesson)?.module);
 
     return [...(quiz.questions ?? [])].map((question) => ({
       id: question.id,
       moduleSlug: moduleRef?.slug ?? null,
       moduleTitle: moduleRef?.title ?? null,
+      showInQuiz: question.show_in_quiz,
       questionText: question.question_text,
       explanation: question.explanation,
       difficulty: question.difficulty,
       questionType: question.question_type,
+      interactionConfig: normalizeDragDropInteractionConfig(question.interaction_config),
+      questionImagePath: question.question_image_path,
+      questionImageAlt: question.question_image_alt,
+      questionImageSecondaryPath: question.question_image_path_secondary,
+      questionImageSecondaryAlt: question.question_image_alt_secondary,
       options: [...(question.options ?? [])]
         .sort((a, b) => a.order_index - b.order_index)
         .map((option) => ({
           id: option.id,
           optionText: option.option_text,
           isCorrect: option.is_correct,
+          matchKey: option.match_key,
           orderIndex: option.order_index
         }))
     }));
@@ -318,6 +427,7 @@ async function fetchExamQuestionBank(client: ServerSupabaseClient) {
 }
 
 function mapExamAttemptState(
+  client: ReadSupabaseClient,
   attempt: RawExamAttemptRow,
   answers: RawAttemptAnswerRow[]
 ): ExamAttemptState {
@@ -339,42 +449,72 @@ function mapExamAttemptState(
     durationSeconds: attempt.duration_seconds,
     totalQuestions: attempt.total_questions,
     currentQuestionIndex: attempt.current_question_index,
-    answeredCount: answers.filter((answer) => answer.selected_option_id !== null).length,
+    answeredCount: answers.filter((answer) => isExamAnswerAnswered(buildExamAnswerKey(answer)))
+      .length,
     flaggedCount: answers.filter((answer) => answer.flagged).length,
     remainingSeconds,
     questions: [...answers]
       .sort((a, b) => a.question_order - b.question_order)
-      .map((answer) => ({
-        id: answer.id,
-        questionId: answer.question_id,
-        orderIndex: answer.question_order,
-        moduleTitle: answer.module_title_snapshot,
-        moduleSlug: answer.module_slug_snapshot,
-        questionText: answer.question_text_snapshot,
-        explanation: answer.explanation_snapshot,
-        difficulty: answer.difficulty_snapshot,
-        questionType: answer.question_type_snapshot,
-        selectedOptionId: answer.selected_option_id,
-        flagged: answer.flagged,
-        options: [...(answer.options_snapshot ?? [])]
-          .sort((a, b) => a.orderIndex - b.orderIndex)
-          .map((option) => ({
-            id: option.id,
-            optionText: option.optionText,
-            orderIndex: option.orderIndex
-          }))
-      }))
+      .map((answer) => {
+        const interactionConfig = normalizeDragDropInteractionConfig(
+          answer.interaction_config_snapshot
+        );
+        const answerPayload =
+          answer.question_type_snapshot === "drag_drop_categorize"
+            ? normalizeDragDropAnswerPayload(answer.answer_payload)
+            : answer.question_type_snapshot === "multiple_choice"
+              ? normalizeMultipleChoiceAnswerPayload(answer.answer_payload)
+              : null;
+        const selectedOptionIds = resolveSelectedOptionIds(answer);
+
+        return {
+          id: answer.id,
+          questionId: answer.question_id,
+          orderIndex: answer.question_order,
+          moduleTitle: answer.module_title_snapshot,
+          moduleSlug: answer.module_slug_snapshot,
+          questionText: answer.question_text_snapshot,
+          explanation: answer.explanation_snapshot,
+          difficulty: answer.difficulty_snapshot,
+          questionType: answer.question_type_snapshot,
+          interactionConfig,
+          questionImageUrl: getQuizQuestionImagePublicUrl(
+            client,
+            answer.question_image_path_snapshot
+          ),
+          questionImageAlt: answer.question_image_alt_snapshot,
+          questionImageSecondaryUrl: getQuizQuestionImagePublicUrl(
+            client,
+            answer.question_image_path_secondary_snapshot
+          ),
+          questionImageSecondaryAlt: answer.question_image_alt_secondary_snapshot,
+          selectedOptionId:
+            answer.question_type_snapshot === "single_choice"
+              ? answer.selected_option_id
+              : null,
+          selectedOptionIds,
+          answerPayload,
+          flagged: answer.flagged,
+          options: [...(answer.options_snapshot ?? [])]
+            .sort((a, b) => a.orderIndex - b.orderIndex)
+            .map((option) => ({
+              id: option.id,
+              optionText: option.optionText,
+              orderIndex: option.orderIndex
+            }))
+        };
+      })
   };
 }
 
 async function fetchAttemptAnswers(
-  client: ServerSupabaseClient,
+  client: ReadSupabaseClient,
   attemptId: string
 ) {
   const { data, error } = await client
     .from("exam_attempt_answers")
     .select(
-      "id,question_id,selected_option_id,question_order,module_slug_snapshot,module_title_snapshot,question_text_snapshot,explanation_snapshot,difficulty_snapshot,question_type_snapshot,options_snapshot,correct_option_id,flagged,is_correct"
+      "id,question_id,selected_option_id,question_order,module_slug_snapshot,module_title_snapshot,question_text_snapshot,explanation_snapshot,difficulty_snapshot,question_type_snapshot,interaction_config_snapshot,question_image_path_snapshot,question_image_alt_snapshot,question_image_path_secondary_snapshot,question_image_alt_secondary_snapshot,answer_payload,options_snapshot,correct_option_id,flagged,is_correct"
     )
     .eq("exam_attempt_id", attemptId)
     .order("question_order", { ascending: true });
@@ -387,7 +527,7 @@ async function fetchAttemptAnswers(
 }
 
 async function fetchAttemptRow(
-  client: ServerSupabaseClient,
+  client: ReadSupabaseClient,
   userId: string,
   attemptId: string
 ) {
@@ -407,8 +547,42 @@ async function fetchAttemptRow(
   return (data as RawExamAttemptRow | null) ?? null;
 }
 
-export async function createExamAttemptForUser(userId: string, examSlug: string) {
-  const supabase = await getSupabaseClient();
+async function startPublishedExamAttemptWithRpc(
+  client: DashboardSupabaseClient,
+  examSlug: string
+) {
+  const { data, error } = await client.rpc("start_published_exam_attempt", {
+    target_exam_slug: examSlug
+  });
+
+  if (error) {
+    if (error.message.toLowerCase().includes("start_published_exam_attempt")) {
+      throw new Error(
+        "The published exam start RPC is not available yet. Run the latest Supabase migration or full setup SQL."
+      );
+    }
+
+    throw new Error(`Failed to start exam attempt: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error("Exam attempt could not be started.");
+  }
+
+  const attempt = data as RpcStartedExamAttemptRow;
+
+  return {
+    attemptId: attempt.attempt_id,
+    examSlug: attempt.exam_slug
+  };
+}
+
+export async function createExamAttemptForUser(
+  userId: string,
+  examSlug: string,
+  options?: { forceRestart?: boolean }
+) {
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     throw new Error("Supabase client is not available.");
@@ -446,11 +620,12 @@ export async function createExamAttemptForUser(userId: string, examSlug: string)
     throw new Error(`Failed to check for an active exam attempt: ${activeAttemptError.message}`);
   }
 
+  const forceRestart = options?.forceRestart === true;
   if (activeAttemptData) {
     const activeAttemptId = activeAttemptData.id as string;
     const activeExpiresAt = new Date(activeAttemptData.expires_at as string).getTime();
 
-    if (Date.now() < activeExpiresAt) {
+    if (!forceRestart && Date.now() < activeExpiresAt) {
       return {
         attemptId: activeAttemptId,
         examSlug: config.slug
@@ -458,6 +633,13 @@ export async function createExamAttemptForUser(userId: string, examSlug: string)
     }
 
     await submitExamAttemptForUser(userId, config.slug, activeAttemptId, "timeout");
+  }
+
+  if (!hasSupabaseServiceRoleEnv()) {
+    return startPublishedExamAttemptWithRpc(
+      supabase as DashboardSupabaseClient,
+      config.slug
+    );
   }
 
   const questionBank = await fetchExamQuestionBank(supabase);
@@ -510,14 +692,22 @@ export async function createExamAttemptForUser(userId: string, examSlug: string)
     explanation_snapshot: question.explanation,
     difficulty_snapshot: question.difficulty,
     question_type_snapshot: question.questionType,
+    interaction_config_snapshot: question.interactionConfig ?? {},
+    question_image_path_snapshot: question.questionImagePath,
+    question_image_alt_snapshot: question.questionImageAlt,
+    question_image_path_secondary_snapshot: question.questionImageSecondaryPath,
+    question_image_alt_secondary_snapshot: question.questionImageSecondaryAlt,
     options_snapshot: question.options.map((option) => ({
       id: option.id,
       optionText: option.optionText,
       orderIndex: option.orderIndex,
-      isCorrect: option.isCorrect
+      isCorrect: option.isCorrect,
+      matchKey: option.matchKey
     })),
     correct_option_id:
-      question.options.find((option) => option.isCorrect)?.id ?? null
+      question.questionType === "single_choice"
+        ? question.options.find((option) => option.isCorrect)?.id ?? null
+        : null
   }));
 
   const { error: answersError } = await supabase
@@ -539,7 +729,7 @@ export async function fetchExamAttemptState(
   examSlug: string,
   attemptId: string
 ): Promise<ExamAttemptState | null> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     return null;
@@ -557,7 +747,7 @@ export async function fetchExamAttemptState(
 
   const answers = await fetchAttemptAnswers(supabase, attemptId);
 
-  return mapExamAttemptState(attempt, answers);
+  return mapExamAttemptState(supabase, attempt, answers);
 }
 
 type SubmitReason = "manual" | "timeout";
@@ -568,7 +758,7 @@ export async function submitExamAttemptForUser(
   attemptId: string,
   reason: SubmitReason
 ) {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     throw new Error("Supabase client is not available.");
@@ -598,10 +788,7 @@ export async function submitExamAttemptForUser(
   const answers = await fetchAttemptAnswers(supabase, attemptId);
   const summary = calculateExamScore(
     answers.map((answer) => ({
-      answer: {
-        correctOptionId: answer.correct_option_id,
-        selectedOptionId: answer.selected_option_id
-      } satisfies ExamAnswerKey,
+      answer: buildExamAnswerKey(answer),
       flagged: answer.flagged
     }))
   );
@@ -643,7 +830,7 @@ export async function submitExamAttemptForUser(
 async function ensureMutableAttempt(
   userId: string,
   attemptId: string,
-  client: ServerSupabaseClient
+  client: ReadSupabaseClient
 ) {
   const attempt = await fetchAttemptRow(client, userId, attemptId);
 
@@ -694,10 +881,14 @@ export async function saveExamAttemptAnswer(
   userId: string,
   attemptId: string,
   questionId: string,
-  selectedOptionId: string,
-  currentQuestionIndex?: number
+  input: {
+    selectedOptionId?: string | null;
+    selectedOptionIds?: string[];
+    answerPayload?: { placements: Record<string, string> } | null;
+    currentQuestionIndex?: number;
+  }
 ) {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     throw new Error("Supabase client is not available.");
@@ -714,7 +905,9 @@ export async function saveExamAttemptAnswer(
 
   const { data: answerData, error: answerError } = await supabase
     .from("exam_attempt_answers")
-    .select("id,correct_option_id,options_snapshot")
+    .select(
+      "id,question_type_snapshot,interaction_config_snapshot,correct_option_id,options_snapshot"
+    )
     .eq("exam_attempt_id", attemptId)
     .eq("question_id", questionId)
     .maybeSingle();
@@ -727,35 +920,139 @@ export async function saveExamAttemptAnswer(
     throw new Error("Question was not found in this exam attempt.");
   }
 
-  const validOptionIds =
-    ((answerData.options_snapshot as Array<{ id: string }> | null) ?? []).map(
-      (option) => option.id
+  const questionType = answerData.question_type_snapshot as QuestionType;
+  const nowIso = new Date().toISOString();
+  let updatePayload:
+    | {
+        selected_option_id: string | null;
+        answer_payload: Record<string, unknown> | MultipleChoiceAnswerPayload | null;
+        is_correct: boolean | null;
+        answered_at: string | null;
+      }
+    | undefined;
+
+  if (questionType === "drag_drop_categorize") {
+    const interactionConfig = normalizeDragDropInteractionConfig(
+      answerData.interaction_config_snapshot
+    );
+    const rawPayload = normalizeDragDropAnswerPayload(input.answerPayload) ?? {
+      placements: {}
+    };
+    const validOptionIds =
+      (
+        (answerData.options_snapshot as Array<{ id: string; matchKey: string | null }> | null) ??
+        []
+      ).map((option) => option.id);
+    const validBucketIds = interactionConfig?.buckets.map((bucket) => bucket.id) ?? [];
+
+    for (const [itemId, bucketId] of Object.entries(rawPayload.placements)) {
+      if (!validOptionIds.includes(itemId)) {
+        throw new Error("One of the dragged items is not valid for this question.");
+      }
+
+      if (!validBucketIds.includes(bucketId)) {
+        throw new Error("One of the selected drag-and-drop buckets is invalid.");
+      }
+    }
+
+    const normalizedPayload = {
+      placements: Object.fromEntries(
+        Object.entries(rawPayload.placements).filter(([itemId]) =>
+          validOptionIds.includes(itemId)
+        )
+      )
+    };
+    const isComplete = isDragDropAnswerComplete(
+      validOptionIds,
+      validBucketIds,
+      normalizedPayload
+    );
+    const isCorrect = isDragDropAnswerCorrect(
+      (
+        (answerData.options_snapshot as Array<{ id: string; matchKey: string | null }> | null) ??
+        []
+      ).map((option) => ({
+        id: option.id,
+        matchKey: option.matchKey
+      })),
+      validBucketIds,
+      normalizedPayload
     );
 
-  if (!validOptionIds.includes(selectedOptionId)) {
-    throw new Error("Selected option is not valid for this question.");
+    updatePayload = {
+      selected_option_id: null,
+      answer_payload: normalizedPayload,
+      is_correct: isComplete ? isCorrect : null,
+      answered_at: Object.keys(normalizedPayload.placements).length > 0 ? nowIso : null
+    };
+  } else if (questionType === "multiple_choice") {
+    const validOptionIds =
+      ((answerData.options_snapshot as Array<{ id: string; isCorrect: boolean }> | null) ?? []).map(
+        (option) => option.id
+      );
+    const correctOptionIds =
+      ((answerData.options_snapshot as Array<{ id: string; isCorrect: boolean }> | null) ?? [])
+        .filter((option) => option.isCorrect)
+        .map((option) => option.id);
+    const selectedOptionIds = normalizeSelectedOptionIds(input.selectedOptionIds).filter((optionId) =>
+      validOptionIds.includes(optionId)
+    );
+
+    if (
+      normalizeSelectedOptionIds(input.selectedOptionIds).some(
+        (optionId) => !validOptionIds.includes(optionId)
+      )
+    ) {
+      throw new Error("One of the selected options is not valid for this question.");
+    }
+
+    updatePayload = {
+      selected_option_id: null,
+      answer_payload:
+        selectedOptionIds.length > 0
+          ? buildMultipleChoiceAnswerPayload(selectedOptionIds)
+          : null,
+      is_correct:
+        selectedOptionIds.length > 0
+          ? isMultipleChoiceCorrect(correctOptionIds, selectedOptionIds)
+          : null,
+      answered_at: selectedOptionIds.length > 0 ? nowIso : null
+    };
+  } else {
+    const selectedOptionId = input.selectedOptionId ?? null;
+    const validOptionIds =
+      ((answerData.options_snapshot as Array<{ id: string }> | null) ?? []).map(
+        (option) => option.id
+      );
+
+    if (!selectedOptionId || !validOptionIds.includes(selectedOptionId)) {
+      throw new Error("Selected option is not valid for this question.");
+    }
+
+    updatePayload = {
+      selected_option_id: selectedOptionId,
+      answer_payload: null,
+      is_correct:
+        (answerData.correct_option_id as string | null) !== null &&
+        selectedOptionId === (answerData.correct_option_id as string | null),
+      answered_at: nowIso
+    };
   }
 
   const { error: updateError } = await supabase
     .from("exam_attempt_answers")
-    .update({
-      selected_option_id: selectedOptionId,
-      is_correct:
-        (answerData.correct_option_id as string | null) !== null &&
-        selectedOptionId === (answerData.correct_option_id as string | null),
-      answered_at: new Date().toISOString()
-    })
+    .update(updatePayload)
     .eq("id", answerData.id as string);
 
   if (updateError) {
     throw new Error(`Failed to save exam answer: ${updateError.message}`);
   }
 
-  if (currentQuestionIndex && currentQuestionIndex > 0) {
+  if (input.currentQuestionIndex && input.currentQuestionIndex > 0) {
     await supabase
       .from("exam_attempts")
       .update({
-        current_question_index: currentQuestionIndex
+        current_question_index: input.currentQuestionIndex
       })
       .eq("id", attemptId)
       .eq("user_id", userId);
@@ -773,7 +1070,7 @@ export async function setExamAttemptFlag(
   flagged: boolean,
   currentQuestionIndex?: number
 ) {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     throw new Error("Supabase client is not available.");
@@ -820,7 +1117,7 @@ export async function saveExamAttemptNavigation(
   attemptId: string,
   currentQuestionIndex: number
 ) {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     throw new Error("Supabase client is not available.");
@@ -890,7 +1187,7 @@ export async function fetchExamAttemptResult(
   examSlug: string,
   attemptId: string
 ): Promise<ExamAttemptResult | null> {
-  const supabase = await getSupabaseClient();
+  const supabase = await getReadSupabaseClient();
 
   if (!supabase) {
     return null;
@@ -926,27 +1223,60 @@ export async function fetchExamAttemptResult(
     startedAt: attempt.started_at,
     completedAt: attempt.submitted_at,
     domainBreakdown: buildDomainBreakdown(answers),
-    review: answers.map((answer) => ({
-      id: answer.id,
-      questionId: answer.question_id,
-      questionText: answer.question_text_snapshot,
-      explanation: answer.explanation_snapshot,
-      moduleTitle: answer.module_title_snapshot,
-      moduleSlug: answer.module_slug_snapshot,
-      difficulty: answer.difficulty_snapshot,
-      flagged: answer.flagged,
-      isCorrect: Boolean(answer.is_correct),
-      selectedOptionId: answer.selected_option_id,
-      correctOptionId: answer.correct_option_id,
-      options: [...(answer.options_snapshot ?? [])]
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map((option) => ({
-          id: option.id,
-          optionText: option.optionText,
-          isCorrect: option.isCorrect,
-          isSelected: answer.selected_option_id === option.id
-        }))
-    }))
+    review: answers.map((answer) => {
+      const interactionConfig = normalizeDragDropInteractionConfig(
+        answer.interaction_config_snapshot
+      );
+      const answerPayload = normalizeDragDropAnswerPayload(answer.answer_payload);
+      const selectedOptionIds = resolveSelectedOptionIds(answer);
+      const correctOptionIds = [...(answer.options_snapshot ?? [])]
+        .filter((option) => option.isCorrect)
+        .map((option) => option.id);
+
+      return {
+        id: answer.id,
+        questionId: answer.question_id,
+        questionText: answer.question_text_snapshot,
+        explanation: answer.explanation_snapshot,
+        moduleTitle: answer.module_title_snapshot,
+        moduleSlug: answer.module_slug_snapshot,
+        difficulty: answer.difficulty_snapshot,
+        questionType: answer.question_type_snapshot,
+        interactionConfig,
+        questionImageUrl: getQuizQuestionImagePublicUrl(
+          supabase,
+          answer.question_image_path_snapshot
+        ),
+        questionImageAlt: answer.question_image_alt_snapshot,
+        questionImageSecondaryUrl: getQuizQuestionImagePublicUrl(
+          supabase,
+          answer.question_image_path_secondary_snapshot
+        ),
+        questionImageSecondaryAlt: answer.question_image_alt_secondary_snapshot,
+        flagged: answer.flagged,
+        isCorrect: Boolean(answer.is_correct),
+        selectedOptionId:
+          answer.question_type_snapshot === "single_choice"
+            ? answer.selected_option_id
+            : null,
+        selectedOptionIds,
+        correctOptionId:
+          answer.question_type_snapshot === "single_choice"
+            ? answer.correct_option_id
+            : null,
+        correctOptionIds,
+        options: [...(answer.options_snapshot ?? [])]
+          .sort((a, b) => a.orderIndex - b.orderIndex)
+          .map((option) => ({
+            id: option.id,
+            optionText: option.optionText,
+            isCorrect: option.isCorrect,
+            isSelected: selectedOptionIds.includes(option.id),
+            correctBucketId: option.matchKey,
+            selectedBucketId: answerPayload?.placements[option.id] ?? null
+          }))
+      };
+    })
   };
 }
 

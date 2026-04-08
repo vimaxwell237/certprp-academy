@@ -13,7 +13,6 @@ import {
   fetchQuizList
 } from "@/features/quizzes/data/quiz-service";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicErrorMessage } from "@/lib/errors/public-error";
 import { getCurrentUser } from "@/lib/auth/session";
 
 export default async function QuizzesPage() {
@@ -77,10 +76,7 @@ export default async function QuizzesPage() {
       </section>
     );
   } catch (error) {
-    const message = getPublicErrorMessage(
-      error,
-      "Quiz data could not be loaded right now."
-    );
+    console.error("[QuizzesPage]", error);
 
     return (
       <section className="w-full space-y-6 pb-12">
@@ -90,9 +86,8 @@ export default async function QuizzesPage() {
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           <p className="font-semibold">Unable to load quiz data.</p>
           <p className="mt-2 text-sm">
-            Run the Phase 3 migration and seed SQL in Supabase, then refresh this page.
+            Check your quiz setup and refresh the page in a moment.
           </p>
-          <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs">{message}</p>
         </div>
       </section>
     );

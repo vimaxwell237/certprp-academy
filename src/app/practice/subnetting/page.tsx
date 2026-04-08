@@ -81,6 +81,7 @@ export default async function SubnettingPracticePage() {
       <AskAiTutorCta
         description="If the subnetting logic still feels unclear, ask the AI tutor for a simpler walkthrough, a CIDR explanation, or a step-by-step subnet example."
         lessonContext="Subnetting practice trainer"
+        preferLiveChat
         question="Can you explain how to solve subnetting problems step by step?"
         source="subnetting-trainer"
         title="Need help with a subnetting concept?"

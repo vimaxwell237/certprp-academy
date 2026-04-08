@@ -9,7 +9,6 @@ import {
 import { QuizForm } from "@/features/quizzes/components/quiz-form";
 import { fetchQuizDetail } from "@/features/quizzes/data/quiz-service";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { getPublicPageErrorMessage } from "@/lib/errors/page-error";
 import { getCurrentUser } from "@/lib/auth/session";
 
 export default async function QuizDetailPage({
@@ -103,10 +102,7 @@ export default async function QuizDetailPage({
       </section>
     );
   } catch (error) {
-    const message = getPublicPageErrorMessage(
-      error,
-      "Quiz details could not be loaded right now."
-    );
+    console.error("[QuizDetailPage]", error);
 
     return (
       <section className="w-full max-w-5xl space-y-6 pb-12">
@@ -119,9 +115,8 @@ export default async function QuizDetailPage({
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           <p className="font-semibold">Unable to load this quiz.</p>
           <p className="mt-2 text-sm">
-            Confirm the Phase 3 migration and seed SQL has been executed in Supabase.
+            This quiz is temporarily unavailable. Please go back and try again.
           </p>
-          <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs">{message}</p>
         </div>
       </section>
     );

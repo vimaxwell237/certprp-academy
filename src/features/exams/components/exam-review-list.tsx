@@ -1,4 +1,7 @@
 import { Card } from "@/components/ui/card";
+import { DragDropCategorizeBoard } from "@/components/ui/drag-drop-categorize-board";
+import { QuestionImageGallery } from "@/components/ui/question-image-gallery";
+import { getQuestionTypeLabel } from "@/lib/questions/drag-drop";
 import type { ExamAttemptResult } from "@/types/exam";
 
 export function ExamReviewList({ result }: { result: ExamAttemptResult }) {
@@ -23,6 +26,9 @@ export function ExamReviewList({ result }: { result: ExamAttemptResult }) {
                 </span>
                 <span className="rounded-full bg-pearl px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate">
                   {question.difficulty}
+                </span>
+                <span className="rounded-full bg-pearl px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate">
+                  {getQuestionTypeLabel(question.questionType)}
                 </span>
                 {question.moduleTitle ? (
                   <span className="rounded-full bg-cyan/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-cyan">
@@ -50,35 +56,64 @@ export function ExamReviewList({ result }: { result: ExamAttemptResult }) {
               </h3>
             </div>
 
-            <div className="space-y-3">
-              {question.options.map((option) => {
-                const stateClass = option.isCorrect
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-                  : option.isSelected
-                    ? "border-rose-200 bg-rose-50 text-rose-950"
-                    : "border-ink/10 bg-pearl text-ink";
+            <QuestionImageGallery
+              images={[
+                {
+                  src: question.questionImageUrl,
+                  alt: question.questionImageAlt || "Question reference image 1",
+                  key: `${question.id}-primary`
+                },
+                {
+                  src: question.questionImageSecondaryUrl,
+                  alt: question.questionImageSecondaryAlt || "Question reference image 2",
+                  key: `${question.id}-secondary`
+                }
+              ]}
+            />
 
-                return (
-                  <div className={`rounded-2xl border px-4 py-4 ${stateClass}`} key={option.id}>
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-base">{option.optionText}</p>
-                      <div className="flex shrink-0 flex-wrap gap-2">
-                        {option.isSelected ? (
-                          <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]">
-                            Selected
-                          </span>
-                        ) : null}
-                        {option.isCorrect ? (
-                          <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]">
-                            Correct
-                          </span>
-                        ) : null}
+            {question.questionType === "drag_drop_categorize" ? (
+              <DragDropCategorizeBoard
+                buckets={question.interactionConfig?.buckets ?? []}
+                items={question.options.map((option) => ({
+                  id: option.id,
+                  label: option.optionText,
+                  selectedBucketId: option.selectedBucketId,
+                  correctBucketId: option.correctBucketId
+                }))}
+                readOnly
+                variant="compact"
+              />
+            ) : (
+              <div className="space-y-3">
+                {question.options.map((option) => {
+                  const stateClass = option.isCorrect
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+                    : option.isSelected
+                      ? "border-rose-200 bg-rose-50 text-rose-950"
+                      : "border-ink/10 bg-pearl text-ink";
+
+                  return (
+                    <div className={`rounded-2xl border px-4 py-4 ${stateClass}`} key={option.id}>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-base">{option.optionText}</p>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          {option.isSelected ? (
+                            <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]">
+                              Selected
+                            </span>
+                          ) : null}
+                          {option.isCorrect ? (
+                            <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]">
+                              Correct
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="rounded-2xl bg-slate-950 px-4 py-4 text-slate-100">
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-cyan-200">

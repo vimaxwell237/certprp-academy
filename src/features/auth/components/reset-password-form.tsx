@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PasswordField } from "@/features/auth/components/password-field";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 import { getPublicErrorMessage } from "@/lib/errors/public-error";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
@@ -118,31 +119,25 @@ export function ResetPasswordForm() {
       </div>
 
       <form action={handleSubmit} className="mt-6 space-y-5 sm:mt-8">
-        <label className="block space-y-2">
-          <span className="text-sm font-semibold text-ink">New password</span>
-          <input
-            required
-            className="w-full rounded-2xl border border-mist bg-pearl px-4 py-3 text-base text-ink outline-none transition placeholder:text-slate/60 focus:border-cyan focus:bg-white"
-            maxLength={128}
-            minLength={8}
-            name="password"
-            placeholder="Create a secure password"
-            type="password"
-          />
-        </label>
+        <PasswordField
+          autoComplete="new-password"
+          label="New password"
+          maxLength={128}
+          minLength={8}
+          name="password"
+          placeholder="Create a secure password"
+          required
+        />
 
-        <label className="block space-y-2">
-          <span className="text-sm font-semibold text-ink">Confirm password</span>
-          <input
-            required
-            className="w-full rounded-2xl border border-mist bg-pearl px-4 py-3 text-base text-ink outline-none transition placeholder:text-slate/60 focus:border-cyan focus:bg-white"
-            maxLength={128}
-            minLength={8}
-            name="confirmPassword"
-            placeholder="Repeat your new password"
-            type="password"
-          />
-        </label>
+        <PasswordField
+          autoComplete="new-password"
+          label="Confirm password"
+          maxLength={128}
+          minLength={8}
+          name="confirmPassword"
+          placeholder="Repeat your new password"
+          required
+        />
 
         {error ? (
           <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">

@@ -1,6 +1,15 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 
 import { AdminFormError } from "@/features/admin/lib/validation";
+import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import {
+  buildQuizQuestionImagePath,
+  getQuizQuestionImagePublicUrl,
+  isQuizQuestionImageType,
+  QUIZ_QUESTION_IMAGES_BUCKET,
+  QUIZ_QUESTION_IMAGE_MAX_BYTES
+} from "@/lib/quiz-question-images";
+import { normalizeDragDropInteractionConfig } from "@/lib/questions/drag-drop";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type {
   AdminCertificationRecord,
@@ -13,6 +22,8 @@ import type {
   AdminModuleRecord,
   AdminPlanRecord,
   AdminQuizRecord,
+  AdminQuizQuestionBankRecord,
+  AdminQuizQuestionRecord,
   AdminSelectOption,
   AdminTutorRecord,
   CertificationMutationInput,
@@ -23,9 +34,11 @@ import type {
   ModuleMutationInput,
   PlanMutationInput,
   QuizMutationInput,
+  QuizQuestionMutationInput,
   TutorMutationInput
 } from "@/types/admin";
 import type { PlanInterval } from "@/types/billing";
+import type { QuestionType } from "@/types/questions";
 
 type ServerSupabaseClient = NonNullable<
   Awaited<ReturnType<typeof createServerSupabaseClient>>
@@ -122,7 +135,7 @@ type RawQuiz = {
   description: string;
   is_published: boolean;
   created_at: string;
-  questions: Array<{ id: string }> | null;
+  questions: Array<{ id: string; show_in_quiz?: boolean }> | null;
   module: RelationValue<{
     id?: string;
     title: string;
@@ -139,6 +152,30 @@ type RawQuiz = {
       course: RelationValue<{ title: string; is_published?: boolean }>;
     }>;
   }>;
+};
+
+type RawQuizQuestion = {
+  id: string;
+  quiz_id: string;
+  question_text: string;
+  explanation: string;
+  difficulty: "easy" | "medium" | "hard";
+  order_index: number;
+  show_in_quiz: boolean;
+  question_type: QuestionType;
+  interaction_config: Record<string, unknown> | null;
+  question_image_path: string | null;
+  question_image_alt: string;
+  question_image_path_secondary: string | null;
+  question_image_alt_secondary: string;
+  created_at: string;
+  options: Array<{
+    id: string;
+    option_text: string;
+    is_correct: boolean;
+    match_key: string | null;
+    order_index: number;
+  }> | null;
 };
 
 type RawLab = {
@@ -227,6 +264,9 @@ async function getSupabaseClient() {
   return createServerSupabaseClient();
 }
 
+const ADMIN_DASHBOARD_WARNING =
+  "Admin metrics are temporarily unavailable. Try again after the data connection is restored.";
+
 function throwIfWriteError(
   error: PostgrestError | null,
   message: string,
@@ -242,6 +282,18 @@ function throwIfWriteError(
 
   if (error.code === "23503") {
     throw new AdminFormError("A required related record could not be found.", fieldErrors);
+  }
+
+  if (error.code === "23514") {
+    if (error.message.includes("quiz_questions_question_type_check")) {
+      throw new AdminFormError(
+        "This database still uses the older quiz question type rules. Run the latest Supabase migration or the newest full setup SQL, then try saving the multiple-choice question again.",
+        {
+          questionType:
+            "Update the database schema to the latest quiz question type constraint, then retry."
+        }
+      );
+    }
   }
 
   throw new Error(`${message}: ${error.message}`);
@@ -611,6 +663,9 @@ function mapQuiz(record: RawQuiz): AdminQuizRecord {
   const lesson = relationFirst(record.lesson);
   const lessonModule = relationFirst(lesson?.module);
   const course = relationFirst(moduleRecord?.course) ?? relationFirst(lessonModule?.course);
+  const questionCount = record.questions?.length ?? 0;
+  const quizVisibleQuestionCount =
+    record.questions?.filter((question) => question.show_in_quiz !== false).length ?? 0;
   const contextLabel = lesson
     ? `${course?.title ?? "Course"} / ${lessonModule?.title ?? "Module"} / ${lesson.title}`
     : `${course?.title ?? "Course"} / ${moduleRecord?.title ?? "Module"}`;
@@ -623,8 +678,45 @@ function mapQuiz(record: RawQuiz): AdminQuizRecord {
     slug: record.slug,
     description: record.description,
     isPublished: record.is_published,
-    questionCount: record.questions?.length ?? 0,
+    questionCount,
+    quizVisibleQuestionCount,
     contextLabel,
+    createdAt: record.created_at
+  };
+}
+
+function mapQuizQuestion(
+  client: ServerSupabaseClient,
+  record: RawQuizQuestion
+): AdminQuizQuestionRecord {
+  return {
+    id: record.id,
+    quizId: record.quiz_id,
+    questionText: record.question_text,
+    explanation: record.explanation,
+    difficulty: record.difficulty,
+    orderIndex: record.order_index,
+    questionType: record.question_type,
+    showInQuiz: record.show_in_quiz,
+    interactionConfig: normalizeDragDropInteractionConfig(record.interaction_config),
+    questionImagePath: record.question_image_path,
+    questionImageAlt: record.question_image_alt,
+    questionImageUrl: getQuizQuestionImagePublicUrl(client, record.question_image_path),
+    questionImageSecondaryPath: record.question_image_path_secondary,
+    questionImageSecondaryAlt: record.question_image_alt_secondary,
+    questionImageSecondaryUrl: getQuizQuestionImagePublicUrl(
+      client,
+      record.question_image_path_secondary
+    ),
+    options: [...(record.options ?? [])]
+      .sort((a, b) => a.order_index - b.order_index)
+      .map((option) => ({
+        id: option.id,
+        optionText: option.option_text,
+        isCorrect: option.is_correct,
+        matchKey: option.match_key,
+        orderIndex: option.order_index
+      })),
     createdAt: record.created_at
   };
 }
@@ -776,10 +868,7 @@ export async function fetchAdminDashboardStats(): Promise<AdminDashboardSnapshot
   } catch (error) {
     return {
       stats: getEmptyAdminDashboardStats(),
-      warning:
-        error instanceof Error
-          ? error.message
-          : "The admin dashboard metrics could not be loaded."
+      warning: getPublicErrorMessage(error, ADMIN_DASHBOARD_WARNING)
     };
   }
 }
@@ -1083,7 +1172,7 @@ export async function fetchAdminQuizzes(): Promise<AdminQuizRecord[]> {
   const { data, error } = await supabase
     .from("quizzes")
     .select(
-      "id,module_id,lesson_id,title,slug,description,is_published,created_at,questions:quiz_questions(id),module:modules(id,title,is_published,course:courses(title,is_published)),lesson:lessons(id,title,is_published,module:modules(title,is_published,course:courses(title,is_published)))"
+      "id,module_id,lesson_id,title,slug,description,is_published,created_at,questions:quiz_questions(id,show_in_quiz),module:modules(id,title,is_published,course:courses(title,is_published)),lesson:lessons(id,title,is_published,module:modules(title,is_published,course:courses(title,is_published)))"
     )
     .order("created_at", { ascending: true });
 
@@ -1104,7 +1193,7 @@ export async function fetchAdminQuiz(recordId: string) {
   const { data, error } = await supabase
     .from("quizzes")
     .select(
-      "id,module_id,lesson_id,title,slug,description,is_published,created_at,questions:quiz_questions(id),module:modules(id,title,is_published,course:courses(title,is_published)),lesson:lessons(id,title,is_published,module:modules(title,is_published,course:courses(title,is_published)))"
+      "id,module_id,lesson_id,title,slug,description,is_published,created_at,questions:quiz_questions(id,show_in_quiz),module:modules(id,title,is_published,course:courses(title,is_published)),lesson:lessons(id,title,is_published,module:modules(title,is_published,course:courses(title,is_published)))"
     )
     .eq("id", recordId)
     .maybeSingle();
@@ -1114,6 +1203,41 @@ export async function fetchAdminQuiz(recordId: string) {
   }
 
   return data ? mapQuiz(data as RawQuiz) : null;
+}
+
+export async function fetchAdminQuizQuestionBank(
+  recordId: string
+): Promise<AdminQuizQuestionBankRecord | null> {
+  const supabase = await getSupabaseClient();
+
+  if (!supabase) {
+    return null;
+  }
+
+  const quiz = await fetchAdminQuiz(recordId);
+
+  if (!quiz) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("quiz_questions")
+    .select(
+      "id,quiz_id,question_text,explanation,difficulty,order_index,show_in_quiz,question_type,interaction_config,question_image_path,question_image_alt,question_image_path_secondary,question_image_alt_secondary,created_at,options:question_options(id,option_text,is_correct,match_key,order_index)"
+    )
+    .eq("quiz_id", recordId)
+    .order("order_index", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to fetch quiz question bank: ${error.message}`);
+  }
+
+  return {
+    quiz,
+    questions: ((data as RawQuizQuestion[] | null) ?? []).map((question) =>
+      mapQuizQuestion(supabase, question)
+    )
+  };
 }
 
 export async function fetchAdminLabs(): Promise<AdminLabRecord[]> {
@@ -1609,6 +1733,277 @@ export async function saveAdminQuiz(input: QuizMutationInput) {
   }
 
   return data.id as string;
+}
+
+export async function saveAdminQuizQuestion(input: QuizQuestionMutationInput) {
+  const supabase = await getSupabaseClient();
+
+  if (!supabase) {
+    throw new Error("Supabase client is not available.");
+  }
+
+  const quiz = await fetchAdminQuiz(input.quizId);
+
+  if (!quiz) {
+    throw new AdminFormError("Quiz could not be found.", {
+      quizId: "Select a valid quiz."
+    });
+  }
+
+  await ensureScopedUnique(
+    supabase,
+    "quiz_questions",
+    "order_index",
+    input.orderIndex,
+    { quiz_id: input.quizId },
+    input.id,
+    "orderIndex",
+    "This order index is already used in this quiz."
+  );
+
+  if (input.questionType === "drag_drop_categorize") {
+    if (!input.interactionConfig || input.interactionConfig.buckets.length < 2) {
+      throw new AdminFormError("Drag-and-drop questions need at least two buckets.", {
+        dragDropBucketLines: "Add at least two buckets for this drag-and-drop question."
+      });
+    }
+
+    if (input.options.length < 2) {
+      throw new AdminFormError("Drag-and-drop questions need draggable items.", {
+        dragDropItemLines: "Add at least two draggable items."
+      });
+    }
+
+    if (input.options.some((option) => !option.matchKey)) {
+      throw new AdminFormError("Every drag-and-drop item needs a matching bucket.", {
+        dragDropItemLines: "Each draggable item must map to one of the listed buckets."
+      });
+    }
+  } else {
+    if (input.options.length < 2 || input.options.length > 6) {
+      throw new AdminFormError("Choice questions must have between 2 and 6 options.", {
+        optionCount: "Use between 2 and 6 answer choices."
+      });
+    }
+
+    const correctAnswerCount = input.options.filter((option) => option.isCorrect).length;
+
+    if (input.questionType === "single_choice" && correctAnswerCount !== 1) {
+      throw new AdminFormError("Choose exactly one correct answer.", {
+        correctOption: "Choose exactly one correct answer."
+      });
+    }
+
+    if (input.questionType === "multiple_choice" && correctAnswerCount < 2) {
+      throw new AdminFormError("Multiple-choice questions need at least two correct answers.", {
+        correctOption: "Select at least two correct answers."
+      });
+    }
+  }
+
+  const validateQuestionImageFile = (
+    file: File | null | undefined,
+    fieldName: "questionImage" | "questionImageSecondary"
+  ) => {
+    if (!file) {
+      return;
+    }
+
+    if (!isQuizQuestionImageType(file.type)) {
+      throw new AdminFormError("Question image format is invalid.", {
+        [fieldName]: "Upload a JPG, PNG, WebP, or GIF image."
+      });
+    }
+
+    if (file.size > QUIZ_QUESTION_IMAGE_MAX_BYTES) {
+      throw new AdminFormError("Question image is too large.", {
+        [fieldName]: "Upload an image that is 5 MB or smaller."
+      });
+    }
+  };
+
+  validateQuestionImageFile(input.questionImageFile, "questionImage");
+  validateQuestionImageFile(input.questionImageSecondaryFile, "questionImageSecondary");
+
+  const questionId = input.id ?? crypto.randomUUID();
+  let existingQuestionImagePath: string | null = null;
+  let existingQuestionImageSecondaryPath: string | null = null;
+
+  if (input.id) {
+    const { data: existingQuestion, error: existingQuestionError } = await supabase
+      .from("quiz_questions")
+      .select("id,quiz_id,question_image_path,question_image_path_secondary")
+      .eq("id", input.id)
+      .maybeSingle();
+
+    if (existingQuestionError) {
+      throw new Error(
+        `Failed to validate existing quiz question: ${existingQuestionError.message}`
+      );
+    }
+
+    if (!existingQuestion || existingQuestion.quiz_id !== input.quizId) {
+      throw new AdminFormError("Quiz question could not be found.", {
+        questionText: "Select a valid question to update."
+      });
+    }
+    existingQuestionImagePath = existingQuestion.question_image_path as string | null;
+    existingQuestionImageSecondaryPath =
+      existingQuestion.question_image_path_secondary as string | null;
+  }
+
+  const uploadQuestionImage = async (
+    file: File | null | undefined,
+    variant: "primary" | "secondary",
+    fieldName: "questionImage" | "questionImageSecondary"
+  ) => {
+    if (!file) {
+      return null;
+    }
+
+    const path = buildQuizQuestionImagePath(questionId, file, variant);
+    const { error: uploadError } = await supabase.storage
+      .from(QUIZ_QUESTION_IMAGES_BUCKET)
+      .upload(path, file, {
+        cacheControl: "3600",
+        contentType: file.type,
+        upsert: false
+      });
+
+    if (uploadError) {
+      throw new AdminFormError("Question image upload failed.", {
+        [fieldName]: "The image could not be uploaded. Try again with a supported file."
+      });
+    }
+
+    return path;
+  };
+
+  let uploadedQuestionImagePath: string | null = null;
+  let uploadedQuestionImageSecondaryPath: string | null = null;
+
+  try {
+    uploadedQuestionImagePath = await uploadQuestionImage(
+      input.questionImageFile,
+      "primary",
+      "questionImage"
+    );
+    uploadedQuestionImageSecondaryPath = await uploadQuestionImage(
+      input.questionImageSecondaryFile,
+      "secondary",
+      "questionImageSecondary"
+    );
+  } catch (error) {
+    const uploadedImagePaths = [
+      uploadedQuestionImagePath,
+      uploadedQuestionImageSecondaryPath
+    ].filter((path): path is string => Boolean(path));
+
+    if (uploadedImagePaths.length > 0) {
+      await supabase.storage
+        .from(QUIZ_QUESTION_IMAGES_BUCKET)
+        .remove(uploadedImagePaths);
+    }
+
+    throw error;
+  }
+
+  const nextQuestionImagePath =
+    uploadedQuestionImagePath ??
+    (input.removeQuestionImage ? null : existingQuestionImagePath);
+  const nextQuestionImageAlt = nextQuestionImagePath ? input.questionImageAlt : "";
+  const nextQuestionImageSecondaryPath =
+    uploadedQuestionImageSecondaryPath ??
+    (input.removeQuestionImageSecondary ? null : existingQuestionImageSecondaryPath);
+  const nextQuestionImageSecondaryAlt = nextQuestionImageSecondaryPath
+    ? input.questionImageSecondaryAlt
+    : "";
+
+  try {
+    if (input.id) {
+      const { error } = await supabase
+        .from("quiz_questions")
+        .update({
+          question_text: input.questionText,
+          explanation: input.explanation,
+          difficulty: input.difficulty,
+          order_index: input.orderIndex,
+          show_in_quiz:
+            input.questionType === "single_choice" ? input.showInQuiz : false,
+          question_type: input.questionType,
+          interaction_config: input.interactionConfig ?? {},
+          question_image_path: nextQuestionImagePath,
+          question_image_alt: nextQuestionImageAlt,
+          question_image_path_secondary: nextQuestionImageSecondaryPath,
+          question_image_alt_secondary: nextQuestionImageSecondaryAlt
+        })
+        .eq("id", questionId);
+
+      throwIfWriteError(error, "Failed to update quiz question", {
+        orderIndex: "This order index is already used in this quiz."
+      });
+    } else {
+      const { error } = await supabase.from("quiz_questions").insert({
+        id: questionId,
+        quiz_id: input.quizId,
+        question_text: input.questionText,
+        explanation: input.explanation,
+        difficulty: input.difficulty,
+        order_index: input.orderIndex,
+        show_in_quiz:
+          input.questionType === "single_choice" ? input.showInQuiz : false,
+        question_type: input.questionType,
+        interaction_config: input.interactionConfig ?? {},
+        question_image_path: nextQuestionImagePath,
+        question_image_alt: nextQuestionImageAlt,
+        question_image_path_secondary: nextQuestionImageSecondaryPath,
+        question_image_alt_secondary: nextQuestionImageSecondaryAlt
+      });
+
+      throwIfWriteError(error, "Failed to create quiz question", {
+        orderIndex: "This order index is already used in this quiz."
+      });
+    }
+  } catch (error) {
+    const uploadedImagePaths = [
+      uploadedQuestionImagePath,
+      uploadedQuestionImageSecondaryPath
+    ].filter((path): path is string => Boolean(path));
+
+    if (uploadedImagePaths.length > 0) {
+      await supabase.storage
+        .from(QUIZ_QUESTION_IMAGES_BUCKET)
+        .remove(uploadedImagePaths);
+    }
+
+    throw error;
+  }
+
+  const optionPayload = input.options.map((option) => ({
+    question_id: questionId,
+    option_text: option.optionText,
+    is_correct: option.isCorrect,
+    match_key: option.matchKey,
+    order_index: option.orderIndex
+  }));
+
+  const { error: optionsError } = await supabase
+    .from("question_options")
+    .upsert(optionPayload, {
+      onConflict: "question_id,order_index"
+    });
+
+  throwIfWriteError(optionsError, "Failed to save quiz question options");
+
+  const { error: deleteExtraOptionsError } = await supabase
+    .from("question_options")
+    .delete()
+    .eq("question_id", questionId)
+    .gt("order_index", optionPayload.length);
+
+  throwIfWriteError(deleteExtraOptionsError, "Failed to remove stale quiz question options");
+
+  return questionId;
 }
 
 export async function saveAdminLab(input: LabMutationInput) {

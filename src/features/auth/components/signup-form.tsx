@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PasswordField } from "@/features/auth/components/password-field";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 import { buildAppUrl } from "@/lib/app-url";
 import { getSafeAuthErrorMessage } from "@/lib/errors/public-error";
@@ -101,18 +102,16 @@ export function SignupForm() {
           />
         </label>
 
-        <label className="block space-y-2">
-          <span className="text-sm font-semibold text-ink">Password</span>
-          <input
-            required
-            className="w-full rounded-2xl border border-mist bg-pearl px-4 py-3 text-base text-ink outline-none transition placeholder:text-slate/60 focus:border-cyan focus:bg-white"
-            minLength={8}
-            maxLength={128}
-            name="password"
-            placeholder="Create a secure password"
-            type="password"
-          />
-        </label>
+        <PasswordField
+          autoComplete="new-password"
+          helperText="Use at least 8 characters."
+          label="Password"
+          maxLength={128}
+          minLength={8}
+          name="password"
+          placeholder="Create a secure password"
+          required
+        />
 
         {error ? (
           <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">

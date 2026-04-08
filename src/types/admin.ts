@@ -1,4 +1,5 @@
 import type { PlanInterval } from "@/types/billing";
+import type { DragDropInteractionConfig, QuestionType } from "@/types/questions";
 
 export interface AdminSelectOption {
   value: string;
@@ -101,8 +102,45 @@ export interface AdminQuizRecord {
   description: string;
   isPublished: boolean;
   questionCount: number;
+  quizVisibleQuestionCount: number;
   contextLabel: string;
   createdAt: string;
+}
+
+export type AdminQuizQuestionDifficulty = "easy" | "medium" | "hard";
+export type AdminQuizQuestionType = QuestionType;
+
+export interface AdminQuizQuestionOptionRecord {
+  id: string;
+  optionText: string;
+  isCorrect: boolean;
+  matchKey: string | null;
+  orderIndex: number;
+}
+
+export interface AdminQuizQuestionRecord {
+  id: string;
+  quizId: string;
+  questionText: string;
+  explanation: string;
+  difficulty: AdminQuizQuestionDifficulty;
+  orderIndex: number;
+  questionType: AdminQuizQuestionType;
+  showInQuiz: boolean;
+  interactionConfig: DragDropInteractionConfig | null;
+  questionImagePath: string | null;
+  questionImageAlt: string;
+  questionImageUrl: string | null;
+  questionImageSecondaryPath: string | null;
+  questionImageSecondaryAlt: string;
+  questionImageSecondaryUrl: string | null;
+  options: AdminQuizQuestionOptionRecord[];
+  createdAt: string;
+}
+
+export interface AdminQuizQuestionBankRecord {
+  quiz: AdminQuizRecord;
+  questions: AdminQuizQuestionRecord[];
 }
 
 export type AdminDifficulty = "beginner" | "intermediate" | "advanced";
@@ -210,6 +248,30 @@ export interface QuizMutationInput {
   slug: string;
   description: string;
   isPublished: boolean;
+}
+
+export interface QuizQuestionMutationInput {
+  id?: string;
+  quizId: string;
+  questionText: string;
+  explanation: string;
+  difficulty: AdminQuizQuestionDifficulty;
+  orderIndex: number;
+  questionType: AdminQuizQuestionType;
+  showInQuiz: boolean;
+  interactionConfig: DragDropInteractionConfig | null;
+  questionImageAlt: string;
+  questionImageFile?: File | null;
+  removeQuestionImage?: boolean;
+  questionImageSecondaryAlt: string;
+  questionImageSecondaryFile?: File | null;
+  removeQuestionImageSecondary?: boolean;
+  options: Array<{
+    optionText: string;
+    isCorrect: boolean;
+    matchKey: string | null;
+    orderIndex: number;
+  }>;
 }
 
 export interface LabMutationInput {
