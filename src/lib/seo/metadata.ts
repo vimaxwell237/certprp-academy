@@ -8,11 +8,16 @@ import {
 
 const DEFAULT_SOCIAL_IMAGE_PATH = "/opengraph-image"
 const DEFAULT_TWITTER_IMAGE_PATH = "/twitter-image"
+const DEFAULT_BRAND_ICON_PATH = "/icon"
+const DEFAULT_APPLE_ICON_PATH = "/apple-icon"
+const DEFAULT_MANIFEST_PATH = "/manifest.webmanifest"
 
 export const SITE_NAME = "CertPrep Academy"
+export const SITE_ALTERNATE_NAME = "CertPrep"
 export const SITE_TITLE = "CCNA Training Platform"
 export const SITE_DESCRIPTION =
   "CertPrep Academy helps learners prepare for CCNA with structured lessons, subnetting practice, labs, quizzes, and AI tutor support."
+export const SITE_ORGANIZATION_EMAIL = "info@certprep.it.com"
 export const SITE_KEYWORDS = [
   "CCNA training",
   "CCNA course",
@@ -79,6 +84,23 @@ function buildOpenGraphImages(alt: string) {
   ]
 }
 
+function parseOrganizationSameAs() {
+  const rawValue = process.env.NEXT_PUBLIC_ORGANIZATION_SAME_AS
+
+  if (!rawValue) {
+    return []
+  }
+
+  return rawValue
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.startsWith("https://"))
+}
+
+export function getOrganizationSameAs() {
+  return parseOrganizationSameAs()
+}
+
 function buildRobots(noIndex: boolean): Metadata["robots"] {
   const shouldIndex = isSearchIndexingEnabled() && !noIndex
 
@@ -107,6 +129,14 @@ export function buildSiteMetadata(): Metadata {
   return {
     metadataBase: getMetadataBase(),
     applicationName: SITE_NAME,
+    creator: SITE_NAME,
+    publisher: SITE_NAME,
+    authors: [
+      {
+        name: SITE_NAME,
+        url: buildCanonicalUrl("/")
+      }
+    ],
     title: {
       default: fullTitle,
       template: `%s | ${SITE_NAME}`
@@ -132,6 +162,12 @@ export function buildSiteMetadata(): Metadata {
       description: SITE_DESCRIPTION,
       images: [buildCanonicalUrl(DEFAULT_TWITTER_IMAGE_PATH)]
     },
+    icons: {
+      icon: buildCanonicalUrl(DEFAULT_BRAND_ICON_PATH),
+      shortcut: buildCanonicalUrl(DEFAULT_BRAND_ICON_PATH),
+      apple: buildCanonicalUrl(DEFAULT_APPLE_ICON_PATH)
+    },
+    manifest: buildCanonicalUrl(DEFAULT_MANIFEST_PATH),
     robots: buildRobots(false),
     verification: {
       google: process.env.GOOGLE_SITE_VERIFICATION || undefined,

@@ -10,6 +10,10 @@ import {
   SeoSectionHeader,
   SeoTrustSection
 } from "@/features/marketing/components/ccna-seo-shared";
+import {
+  dedupeSeoRelatedLinkItems,
+  PRICING_SEO_LINK_ITEM
+} from "@/features/marketing/lib/internal-linking";
 import type { MarketingLandingPageContent } from "@/features/marketing/lib/seo-topics";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 import { SITE_NAME } from "@/lib/seo/metadata";
@@ -86,6 +90,10 @@ export function TopicLandingPage({ page, relatedPages }: TopicLandingPageProps) 
     description: relatedPage.metaDescription,
     ctaLabel: buildRelatedCtaLabel(relatedPage.title)
   }));
+  const nextStepItems = dedupeSeoRelatedLinkItems([
+    PRICING_SEO_LINK_ITEM,
+    ...relatedContentItems.slice(0, 3)
+  ]);
 
   return (
     <div className="w-full space-y-8 pb-12">
@@ -107,6 +115,13 @@ export function TopicLandingPage({ page, relatedPages }: TopicLandingPageProps) 
           label: "Compare CCNA pricing and plans"
         }}
         title={page.heroTitle}
+      />
+
+      <SeoRelatedContentCards
+        cardClassName="bg-pearl/70"
+        intro="Compare plans if you are deciding how deep to study, then move into the closest CCNA hubs from this page."
+        items={nextStepItems}
+        title="Visible next steps from this CCNA hub"
       />
 
       <section className="space-y-4">

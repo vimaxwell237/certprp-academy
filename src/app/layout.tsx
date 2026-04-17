@@ -6,10 +6,13 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { LayoutChrome } from "@/components/layout/layout-chrome";
 import {
   buildSiteMetadata,
+  getOrganizationSameAs,
+  SITE_ALTERNATE_NAME,
   SITE_DESCRIPTION,
-  SITE_NAME
+  SITE_NAME,
+  SITE_ORGANIZATION_EMAIL
 } from "@/lib/seo/metadata";
-import { getCanonicalSiteUrl } from "@/lib/seo/site-url";
+import { buildCanonicalUrl, getCanonicalSiteUrl } from "@/lib/seo/site-url";
 
 import "./globals.css";
 
@@ -32,21 +35,39 @@ export default function RootLayout({
 }>) {
   const canonicalSiteUrl = getCanonicalSiteUrl();
   const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID;
+  const organizationId = buildCanonicalUrl("/#organization");
+  const websiteId = buildCanonicalUrl("/#website");
+  const sameAsProfiles = getOrganizationSameAs();
   const structuredData = [
     {
       "@context": "https://schema.org",
       "@type": "Organization",
+      "@id": organizationId,
       name: SITE_NAME,
+      alternateName: SITE_ALTERNATE_NAME,
       url: canonicalSiteUrl,
-      description: SITE_DESCRIPTION
+      description: SITE_DESCRIPTION,
+      email: SITE_ORGANIZATION_EMAIL,
+      logo: {
+        "@type": "ImageObject",
+        url: buildCanonicalUrl("/icon"),
+        width: 512,
+        height: 512
+      },
+      ...(sameAsProfiles.length > 0 ? { sameAs: sameAsProfiles } : {})
     },
     {
       "@context": "https://schema.org",
       "@type": "WebSite",
+      "@id": websiteId,
       name: SITE_NAME,
+      alternateName: SITE_ALTERNATE_NAME,
       url: canonicalSiteUrl,
       description: SITE_DESCRIPTION,
-      inLanguage: "en-US"
+      inLanguage: "en-US",
+      publisher: {
+        "@id": organizationId
+      }
     }
   ];
 

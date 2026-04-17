@@ -6,6 +6,18 @@ This project now includes a current all-in-one SQL setup file plus incremental m
 
 Run [20260308_certprep_full_setup.sql](/c:/Users/OZ COMPUTER/Desktop/CertPrep Academy/supabase/setup/20260308_certprep_full_setup.sql).
 
+## Production email setup
+
+For account confirmations, password reset emails, and app notification delivery, use the dedicated guide:
+
+- [email-setup.md](/c:/Users/OZ COMPUTER/Desktop/CertPrep Academy/docs/email-setup.md)
+
+That guide separates:
+
+- inbound mailbox hosting for `info@certprep.it.com`
+- Supabase Auth custom SMTP for sign-up confirmations
+- app-side notification delivery configuration and scheduler setup
+
 That file applies, in order:
 
 1. Phase 2 learning schema

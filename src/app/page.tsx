@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 
 import { JsonLd } from "@/components/seo/json-ld";
 import { HeroSection } from "@/features/marketing/components/hero-section";
+import { HomeNextStepsSection } from "@/features/marketing/components/home-next-steps-section";
 import { PlatformOverview } from "@/features/marketing/components/platform-overview";
 import { TopicLinksSection } from "@/features/marketing/components/topic-links-section";
-import { buildPageMetadata } from "@/lib/seo/metadata";
+import { buildPageMetadata, SITE_DESCRIPTION } from "@/lib/seo/metadata";
 import { buildCanonicalUrl } from "@/lib/seo/site-url";
 
 export const metadata: Metadata = buildPageMetadata({
@@ -21,7 +22,24 @@ export const metadata: Metadata = buildPageMetadata({
 });
 
 export default function HomePage() {
+  const organizationId = buildCanonicalUrl("/#organization");
+  const websiteId = buildCanonicalUrl("/#website");
   const structuredData = [
+    {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "@id": buildCanonicalUrl("/#webpage"),
+      name: "CCNA Training Platform",
+      url: buildCanonicalUrl("/"),
+      description: SITE_DESCRIPTION,
+      isPartOf: {
+        "@id": websiteId
+      },
+      about: {
+        "@id": organizationId
+      },
+      inLanguage: "en-US"
+    },
     {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
@@ -41,6 +59,7 @@ export default function HomePage() {
       <JsonLd data={structuredData} />
       <HeroSection />
       <PlatformOverview />
+      <HomeNextStepsSection />
       <TopicLinksSection />
     </div>
   );

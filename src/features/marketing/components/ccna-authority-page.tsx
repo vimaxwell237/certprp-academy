@@ -10,6 +10,10 @@ import {
   SeoRelatedContentCards,
   SeoSectionHeader
 } from "@/features/marketing/components/ccna-seo-shared";
+import {
+  dedupeSeoRelatedLinkItems,
+  PRICING_SEO_LINK_ITEM
+} from "@/features/marketing/lib/internal-linking";
 import type {
   AuthorityLink,
   CcnaAuthorityPageContent
@@ -50,6 +54,13 @@ function buildBreadcrumbs(page: CcnaAuthorityPageContent) {
 
 export function CcnaAuthorityPage({ page }: CcnaAuthorityPageProps) {
   const breadcrumbs = buildBreadcrumbs(page);
+  const nextStepItems = dedupeSeoRelatedLinkItems([
+    PRICING_SEO_LINK_ITEM,
+    ...page.relatedLinks.slice(0, 3).map((related) => ({
+      ...related,
+      ctaLabel: `Explore ${related.title}`
+    }))
+  ]);
   const siteUrl = buildCanonicalUrl(APP_ROUTES.home);
   const pageUrl = buildCanonicalUrl(page.route);
   const structuredData = [
@@ -107,6 +118,13 @@ export function CcnaAuthorityPage({ page }: CcnaAuthorityPageProps) {
         primaryAction={{ href: APP_ROUTES.signup, label: "Start Free Account" }}
         secondaryAction={{ href: APP_ROUTES.pricing, label: "View CCNA Pricing" }}
         title={page.heroTitle}
+      />
+
+      <SeoRelatedContentCards
+        cardClassName="bg-pearl/70"
+        intro="Keep this topic connected to pricing, adjacent domains, and the next logical CCNA study move."
+        items={nextStepItems}
+        title="Direct links to pricing and related CCNA topics"
       />
 
       <section className="space-y-4">

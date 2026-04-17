@@ -11,6 +11,10 @@ import {
   SeoSectionHeader,
   SeoTrustSection
 } from "@/features/marketing/components/ccna-seo-shared";
+import {
+  dedupeSeoRelatedLinkItems,
+  PRICING_SEO_LINK_ITEM
+} from "@/features/marketing/lib/internal-linking";
 import type {
   CcnaTrustPageContent
 } from "@/features/marketing/lib/ccna-trust-pages";
@@ -37,6 +41,17 @@ function buildBreadcrumbs(page: CcnaTrustPageContent) {
 
 export function CcnaTrustPage({ page }: CcnaTrustPageProps) {
   const breadcrumbs = buildBreadcrumbs(page);
+  const nextStepItems = dedupeSeoRelatedLinkItems([
+    PRICING_SEO_LINK_ITEM,
+    ...page.relatedLinks.slice(0, 2).map((link) => ({
+      ...link,
+      ctaLabel: `Read ${link.title}`
+    })),
+    ...page.funnelLinks.slice(0, 1).map((link) => ({
+      ...link,
+      ctaLabel: `Open ${link.title}`
+    }))
+  ]);
   const structuredData = [
     {
       "@context": "https://schema.org",
@@ -91,6 +106,13 @@ export function CcnaTrustPage({ page }: CcnaTrustPageProps) {
         primaryAction={{ href: page.primaryCtaHref, label: page.primaryCtaLabel }}
         secondaryAction={{ href: page.secondaryCtaHref, label: page.secondaryCtaLabel }}
         title={page.heroTitle}
+      />
+
+      <SeoRelatedContentCards
+        cardClassName="bg-pearl/70"
+        intro="Use these links to move from policy and ethics questions into pricing, practical prep pages, and the next useful CCNA step."
+        items={nextStepItems}
+        title="Next CCNA steps from this trust page"
       />
 
       <section className="space-y-4">

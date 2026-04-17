@@ -1,11 +1,30 @@
 import path from "path";
 
-import type { NextConfig } from "next";
+const shouldForceWwwRedirect =
+  process.env.FORCE_WWW_REDIRECT === "true" || Boolean(process.env.VERCEL_ENV);
 
-const nextConfig: NextConfig = {
+const lowMemoryBuild =
+  process.env.LOW_MEMORY_BUILD === "true" || process.env.NAMECHEAP_BUILD === "true";
+
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   reactStrictMode: true,
-  outputFileTracingRoot: path.join(__dirname),
+  outputFileTracingRoot: path.join(process.cwd()),
+  eslint: {
+    ignoreDuringBuilds: lowMemoryBuild
+  },
+  typescript: {
+    ignoreBuildErrors: lowMemoryBuild
+  },
+  experimental: {
+    cpus: lowMemoryBuild ? 1 : undefined,
+    webpackMemoryOptimizations: lowMemoryBuild
+  },
   async redirects() {
+    if (!shouldForceWwwRedirect) {
+      return [];
+    }
+
     return [
       {
         source: "/:path*",

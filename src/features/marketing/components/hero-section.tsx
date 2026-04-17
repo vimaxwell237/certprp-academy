@@ -1,8 +1,11 @@
 import Link from "next/link";
 
 import { APP_ROUTES } from "@/lib/auth/redirects";
+import { SITE_ORGANIZATION_EMAIL } from "@/lib/seo/metadata";
 
 export function HeroSection() {
+  const contactHref = `mailto:${SITE_ORGANIZATION_EMAIL}`;
+
   return (
     <section className="relative overflow-hidden rounded-[1.5rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,_rgba(8,145,178,0.22),_transparent_32%),linear-gradient(135deg,_#0F172A_0%,_#12263A_45%,_#0F766E_100%)] px-4 py-10 text-white shadow-soft sm:rounded-[2rem] sm:px-6 sm:py-14 lg:px-12 lg:py-20">
       <div className="absolute inset-0 bg-grid-fade bg-[length:36px_36px] opacity-10" />
@@ -41,6 +44,12 @@ export function HeroSection() {
               Log in
             </Link>
           </p>
+          <p className="text-sm text-slate-200">
+            Need help with your account or CCNA study plan?{" "}
+            <Link className="font-semibold text-white underline-offset-4 hover:underline" href={contactHref}>
+              {SITE_ORGANIZATION_EMAIL}
+            </Link>
+          </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
@@ -64,6 +73,13 @@ export function HeroSection() {
               <li>Practice exams</li>
               <li>Guided support</li>
             </ul>
+            <p className="mt-4 text-sm text-slate-200">
+              Contact us at{" "}
+              <Link className="font-semibold text-white underline-offset-4 hover:underline" href={contactHref}>
+                {SITE_ORGANIZATION_EMAIL}
+              </Link>
+              .
+            </p>
           </div>
         </div>
       </div>

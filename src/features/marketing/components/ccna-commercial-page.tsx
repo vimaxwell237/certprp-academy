@@ -10,6 +10,10 @@ import {
   SeoSectionHeader,
   SeoTrustSection
 } from "@/features/marketing/components/ccna-seo-shared";
+import {
+  dedupeSeoRelatedLinkItems,
+  PRICING_SEO_LINK_ITEM
+} from "@/features/marketing/lib/internal-linking";
 import type { CcnaCommercialPageContent } from "@/features/marketing/lib/ccna-commercial-pages";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 import { SITE_NAME } from "@/lib/seo/metadata";
@@ -34,6 +38,13 @@ function buildBreadcrumbs(page: CcnaCommercialPageContent) {
 
 export function CcnaCommercialPage({ page }: CcnaCommercialPageProps) {
   const breadcrumbs = buildBreadcrumbs(page);
+  const nextStepItems = dedupeSeoRelatedLinkItems([
+    PRICING_SEO_LINK_ITEM,
+    ...page.proofLinks.slice(0, 3).map((link) => ({
+      ...link,
+      ctaLabel: `Explore ${link.title}`
+    }))
+  ]);
   const siteUrl = buildCanonicalUrl(APP_ROUTES.home);
   const pageUrl = buildCanonicalUrl(page.route);
   const primaryCtaUrl = buildCanonicalUrl(page.primaryCtaHref);
@@ -127,6 +138,13 @@ export function CcnaCommercialPage({ page }: CcnaCommercialPageProps) {
         primaryAction={{ href: page.primaryCtaHref, label: page.primaryCtaLabel }}
         secondaryAction={{ href: page.secondaryCtaHref, label: page.secondaryCtaLabel }}
         title={page.heroTitle}
+      />
+
+      <SeoRelatedContentCards
+        cardClassName="bg-pearl/70"
+        intro="If you are comparing paid study options, keep pricing and the most relevant supporting CCNA pages within one click."
+        items={nextStepItems}
+        title="Pricing and proof links for this CCNA offer"
       />
 
       <section className="space-y-4">

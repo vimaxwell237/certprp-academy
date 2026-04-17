@@ -279,6 +279,16 @@ function buildProviderDebugSummary(failures: TutorProviderFailure[]) {
     .join(" | ");
 }
 
+function logTutorProviderFailures(context: string, failures: TutorProviderFailure[]) {
+  const summary = buildProviderDebugSummary(failures);
+
+  if (!summary) {
+    return;
+  }
+
+  console.warn(`[ai-tutor] ${context}: ${summary}`);
+}
+
 function getGitHubModelsToTry() {
   const primaryModel = process.env.GITHUB_MODELS_MODEL ?? "openai/gpt-4o-mini";
   const fallbackModel = process.env.GITHUB_MODELS_FALLBACK_MODEL?.trim();
@@ -778,6 +788,8 @@ export async function POST(request: NextRequest) {
           : undefined;
 
       if (rateLimitedFailure) {
+        logTutorProviderFailures("using fallback after rate limit", failures);
+
         return jsonNoStore(
           buildFallbackPayload({
             failures,
@@ -790,6 +802,8 @@ export async function POST(request: NextRequest) {
       }
 
       if (transientFailure) {
+        logTutorProviderFailures("using fallback after provider failure", failures);
+
         return jsonNoStore(
           buildFallbackPayload({
             failures,
@@ -800,6 +814,8 @@ export async function POST(request: NextRequest) {
           })
         );
       }
+
+      logTutorProviderFailures("returning provider error", failures);
 
       return jsonNoStore(
         {
@@ -833,6 +849,8 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to process the AI tutor request.";
+
+    console.error("[ai-tutor] unexpected route failure", error);
 
     return jsonNoStore(
       {

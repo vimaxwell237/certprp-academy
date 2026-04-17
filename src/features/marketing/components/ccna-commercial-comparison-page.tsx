@@ -11,6 +11,10 @@ import {
   SeoSectionHeader,
   SeoTrustSection
 } from "@/features/marketing/components/ccna-seo-shared";
+import {
+  dedupeSeoRelatedLinkItems,
+  PRICING_SEO_LINK_ITEM
+} from "@/features/marketing/lib/internal-linking";
 import type {
   CcnaCommercialComparisonPageContent
 } from "@/features/marketing/lib/ccna-commercial-comparison-pages";
@@ -39,6 +43,17 @@ export function CcnaCommercialComparisonPage({
   page
 }: CcnaCommercialComparisonPageProps) {
   const breadcrumbs = buildBreadcrumbs(page);
+  const nextStepItems = dedupeSeoRelatedLinkItems([
+    PRICING_SEO_LINK_ITEM,
+    ...page.relatedLinks.slice(0, 2).map((link) => ({
+      ...link,
+      ctaLabel: `Read ${link.title}`
+    })),
+    ...page.funnelLinks.slice(0, 1).map((link) => ({
+      ...link,
+      ctaLabel: `Open ${link.title}`
+    }))
+  ]);
   const structuredData = [
     {
       "@context": "https://schema.org",
@@ -93,6 +108,13 @@ export function CcnaCommercialComparisonPage({
         primaryAction={{ href: page.primaryCtaHref, label: page.primaryCtaLabel }}
         secondaryAction={{ href: page.secondaryCtaHref, label: page.secondaryCtaLabel }}
         title={page.heroTitle}
+      />
+
+      <SeoRelatedContentCards
+        cardClassName="bg-pearl/70"
+        intro="Move from comparison intent into pricing and the most relevant supporting CCNA pages without leaving this path cold."
+        items={nextStepItems}
+        title="Where to go after this comparison page"
       />
 
       <section className="space-y-4">

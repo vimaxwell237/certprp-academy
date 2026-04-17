@@ -2,10 +2,15 @@
   "name": "certprep-academy",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=18.18.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node -e \"process.env.NODE_ENV='production'; require('./server.js')\"",
+    "package:namecheap": "powershell -ExecutionPolicy Bypass -File scripts/package-namecheap-deploy.ps1",
+    "package:namecheap-prebuilt": "powershell -ExecutionPolicy Bypass -File scripts/package-namecheap-prebuilt-deploy.ps1",
     "lint": "next lint",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test:e2e": "playwright test",
@@ -15,22 +20,24 @@
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.49.1",
     "next": "^15.5.14",
+    "nodemailer": "^8.0.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "stripe": "^20.4.1"
+    "stripe": "^20.4.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
-    "@types/node": "^22.13.10",
-    "@types/react": "^19.0.10",
-    "@types/react-dom": "^19.0.4",
-    "autoprefixer": "^10.4.20",
+    "@types/nodemailer": "^8.0.0",
     "eslint": "^9.21.0",
     "eslint-config-next": "^15.5.14",
-    "postcss": "^8.5.3",
-    "tailwindcss": "^3.4.17",
-    "tsx": "^4.19.4",
-    "typescript": "^5.8.2"
+    "tsx": "^4.19.4"
   },
   "overrides": {
     "flatted": "^3.4.2"

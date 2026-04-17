@@ -10,6 +10,10 @@ import {
   SeoSectionHeader,
   SeoTrustSection
 } from "@/features/marketing/components/ccna-seo-shared";
+import {
+  dedupeSeoRelatedLinkItems,
+  PRICING_SEO_LINK_ITEM
+} from "@/features/marketing/lib/internal-linking";
 import type { CcnaPracticeClusterPageContent } from "@/features/marketing/lib/ccna-practice-cluster-pages";
 import { APP_ROUTES } from "@/lib/auth/redirects";
 import { SITE_NAME } from "@/lib/seo/metadata";
@@ -34,6 +38,17 @@ function buildBreadcrumbs(page: CcnaPracticeClusterPageContent) {
 
 export function CcnaPracticeClusterPage({ page }: CcnaPracticeClusterPageProps) {
   const breadcrumbs = buildBreadcrumbs(page);
+  const nextStepItems = dedupeSeoRelatedLinkItems([
+    PRICING_SEO_LINK_ITEM,
+    ...page.clusterLinks.slice(0, 2).map((link) => ({
+      ...link,
+      ctaLabel: `Review ${link.title}`
+    })),
+    ...page.conversionLinks.slice(0, 1).map((link) => ({
+      ...link,
+      ctaLabel: `Open ${link.title}`
+    }))
+  ]);
   const structuredData = [
     {
       "@context": "https://schema.org",
@@ -86,6 +101,13 @@ export function CcnaPracticeClusterPage({ page }: CcnaPracticeClusterPageProps) 
         primaryAction={{ href: page.primaryCtaHref, label: page.primaryCtaLabel }}
         secondaryAction={{ href: page.secondaryCtaHref, label: page.secondaryCtaLabel }}
         title={page.heroTitle}
+      />
+
+      <SeoRelatedContentCards
+        cardClassName="bg-pearl/70"
+        intro="Compare plans and move directly into the closest practice, subscription, and supporting topic pages from here."
+        items={nextStepItems}
+        title="Next CCNA steps from this practice page"
       />
 
       <section className="space-y-4">
