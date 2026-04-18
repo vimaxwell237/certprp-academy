@@ -5,8 +5,6 @@ import {
   getConfiguredEmailProviderKind,
   getEmailProvider
 } from "@/features/delivery/lib/provider";
-import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
 import {
   checkSlidingWindowRateLimit,
   isTrustedRequestOrigin
@@ -33,26 +31,6 @@ function getClientAddress(request: NextRequest) {
   }
 
   return request.headers.get("x-real-ip") ?? "unknown";
-}
-
-function buildRecoveryRedirectUrl() {
-  const callbackParams = new URLSearchParams({
-    next: APP_ROUTES.resetPassword,
-    mode: "recovery"
-  });
-
-  return buildAppUrl(`${APP_ROUTES.authCallback}?${callbackParams.toString()}`);
-}
-
-function buildRecoveryEmailUrl(tokenHash: string) {
-  const callbackParams = new URLSearchParams({
-    token_hash: tokenHash,
-    type: "recovery",
-    next: APP_ROUTES.resetPassword,
-    mode: "recovery"
-  });
-
-  return buildAppUrl(`${APP_ROUTES.authCallback}?${callbackParams.toString()}`);
 }
 
 function isMissingUserRecoveryError(error: unknown) {
@@ -127,10 +105,7 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceRoleSupabaseClient();
     const { data, error } = await supabase.auth.admin.generateLink({
       type: "recovery",
-      email,
-      options: {
-        redirectTo: buildRecoveryRedirectUrl()
-      }
+      email
     });
 
     if (error) {
@@ -141,17 +116,17 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
-    const tokenHash = data.properties?.hashed_token;
+    const emailOtp = data.properties?.email_otp;
 
-    if (!tokenHash) {
-      throw new Error("Supabase did not return a password recovery token.");
+    if (!emailOtp) {
+      throw new Error("Supabase did not return a password recovery code.");
     }
 
     const emailProvider = getEmailProvider();
     const sendResult = await emailProvider.send(
       buildPasswordRecoveryEmail({
         to: email,
-        recoveryUrl: buildRecoveryEmailUrl(tokenHash)
+        code: emailOtp
       })
     );
 

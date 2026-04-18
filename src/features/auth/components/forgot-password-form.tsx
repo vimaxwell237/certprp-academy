@@ -6,24 +6,32 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PasswordField } from "@/features/auth/components/password-field";
 import { APP_ROUTES } from "@/lib/auth/redirects";
+import { getPublicErrorMessage } from "@/lib/errors/public-error";
+import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { hasSupabaseEnv } from "@/lib/supabase/config";
 
 const PASSWORD_RESET_COOLDOWN_MS = 60_000;
 const PASSWORD_RESET_COOLDOWN_KEY = "certprep:password-reset-cooldown-until";
+type ResetStep = "request" | "verify";
 
 export function ForgotPasswordForm() {
   const searchParams = useSearchParams();
+  const [supabase] = useState(() => createBrowserSupabaseClient());
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
+  const [email, setEmail] = useState("");
+  const [pendingEmail, setPendingEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [step, setStep] = useState<ResetStep>("request");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isConfigured = hasSupabaseEnv();
   const errorParam = searchParams?.get("error");
   const recoveryLinkError =
     errorParam === "recovery_link"
-      ? "That password reset link is invalid or has expired. Request a new reset email below."
+      ? "That password reset link is invalid or has expired. Request a new reset code below."
       : null;
   const cooldownRemainingSeconds = Math.ceil(cooldownRemainingMs / 1000);
 
@@ -32,6 +40,10 @@ export function ForgotPasswordForm() {
 
     window.localStorage.setItem(PASSWORD_RESET_COOLDOWN_KEY, String(endsAt));
     setCooldownRemainingMs(durationMs);
+  }
+
+  function normalizeOtp(value: string) {
+    return value.replace(/\s+/g, "").trim();
   }
 
   useEffect(() => {
@@ -82,7 +94,7 @@ export function ForgotPasswordForm() {
     };
   }, [cooldownRemainingMs]);
 
-  async function handleSubmit(formData: FormData) {
+  async function requestPasswordResetCode(nextEmail: string) {
     if (!isConfigured) {
       setError(
         "Supabase environment variables are missing. Add them in .env.local to enable password recovery."
@@ -102,14 +114,13 @@ export function ForgotPasswordForm() {
         return;
       }
 
-      const email = String(formData.get("email") ?? "");
       const response = await fetch("/api/auth/password-reset", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          email
+          email: nextEmail
         })
       });
       const result = (await response.json().catch(() => null)) as
@@ -128,8 +139,10 @@ export function ForgotPasswordForm() {
           setCooldown(PASSWORD_RESET_COOLDOWN_MS);
         }
       } else {
+        setPendingEmail(nextEmail);
+        setStep("verify");
         setSuccess(
-          "If an account exists for that email, a password reset link has been sent. Use the newest email in your inbox."
+          "If an account exists for that email, we sent a security code. Enter the newest code from your inbox below."
         );
         setCooldown(PASSWORD_RESET_COOLDOWN_MS);
       }
@@ -142,6 +155,92 @@ export function ForgotPasswordForm() {
     }
   }
 
+  async function handleRequestSubmit(formData: FormData) {
+    const nextEmail = String(formData.get("email") ?? "").trim().toLowerCase();
+
+    setEmail(nextEmail);
+    await requestPasswordResetCode(nextEmail);
+  }
+
+  async function handleVerifySubmit(formData: FormData) {
+    if (!supabase) {
+      setError(
+        "Supabase environment variables are missing. Add them in .env.local to enable password recovery."
+      );
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setIsSubmitting(true);
+
+    const code = normalizeOtp(String(formData.get("code") ?? ""));
+    const password = String(formData.get("password") ?? "");
+    const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+    if (!pendingEmail) {
+      setError("Start over and request a new password reset code.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!code) {
+      setError("Enter the security code from your email.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (password.length < 8) {
+      setError("Use at least 8 characters for your new password.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Your password confirmation does not match.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email: pendingEmail,
+        token: code,
+        type: "recovery"
+      });
+
+      if (verifyError) {
+        setError(
+          getPublicErrorMessage(
+            verifyError,
+            "That reset code is invalid or has expired. Request a new one and try again."
+          )
+        );
+        return;
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+
+      if (updateError) {
+        setError(
+          getPublicErrorMessage(
+            updateError,
+            "We could not update your password right now. Request a new code and try again."
+          )
+        );
+        return;
+      }
+
+      await supabase.auth.signOut();
+      setSuccess("Password updated. Redirecting you to login...");
+      window.localStorage.removeItem(PASSWORD_RESET_COOLDOWN_KEY);
+      setCooldownRemainingMs(0);
+      window.location.assign(`${APP_ROUTES.login}?reset=1`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <Card className="w-full max-w-md border border-white/80 bg-white/95 p-5 sm:p-8">
       <div className="space-y-2">
@@ -149,26 +248,75 @@ export function ForgotPasswordForm() {
           Password help
         </p>
         <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">
-          Reset your password
+          {step === "request" ? "Reset your password" : "Enter your reset code"}
         </h1>
         <p className="text-base text-slate">
-          Enter your email and we&apos;ll send you a secure link to choose a new
-          password.
+          {step === "request"
+            ? "Enter your email and we&apos;ll send you a security code to finish resetting your password."
+            : "Use the newest security code from your email, then choose a new password."}
         </p>
       </div>
 
-      <form action={handleSubmit} className="mt-6 space-y-5 sm:mt-8">
-        <label className="block space-y-2">
-          <span className="text-sm font-semibold text-ink">Email</span>
-          <input
-            required
-            className="w-full rounded-2xl border border-mist bg-pearl px-4 py-3 text-base text-ink outline-none transition placeholder:text-slate/60 focus:border-cyan focus:bg-white"
-            maxLength={254}
-            name="email"
-            placeholder="you@example.com"
-            type="email"
-          />
-        </label>
+      <form
+        action={step === "request" ? handleRequestSubmit : handleVerifySubmit}
+        className="mt-6 space-y-5 sm:mt-8"
+      >
+        {step === "request" ? (
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-ink">Email</span>
+            <input
+              required
+              className="w-full rounded-2xl border border-mist bg-pearl px-4 py-3 text-base text-ink outline-none transition placeholder:text-slate/60 focus:border-cyan focus:bg-white"
+              maxLength={254}
+              name="email"
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              type="email"
+              value={email}
+            />
+          </label>
+        ) : (
+          <>
+            <div className="rounded-2xl bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+              Enter the newest code sent to <strong>{pendingEmail}</strong>.
+            </div>
+
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-ink">Security code</span>
+              <input
+                required
+                autoComplete="one-time-code"
+                className="w-full rounded-2xl border border-mist bg-pearl px-4 py-3 text-base tracking-[0.3em] text-ink outline-none transition placeholder:tracking-normal placeholder:text-slate/60 focus:border-cyan focus:bg-white"
+                inputMode="numeric"
+                maxLength={8}
+                name="code"
+                placeholder="123456"
+                type="text"
+              />
+            </label>
+
+            <PasswordField
+              autoComplete="new-password"
+              helperText="Use at least 8 characters."
+              label="New password"
+              maxLength={128}
+              minLength={8}
+              name="password"
+              placeholder="Create a secure password"
+              required
+            />
+
+            <PasswordField
+              autoComplete="new-password"
+              label="Confirm new password"
+              maxLength={128}
+              minLength={8}
+              name="confirmPassword"
+              placeholder="Repeat your new password"
+              required
+            />
+          </>
+        )}
 
         {error ? (
           <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -199,16 +347,55 @@ export function ForgotPasswordForm() {
         ) : null}
 
         <Button
-          disabled={!isConfigured || isSubmitting || cooldownRemainingMs > 0}
+          disabled={
+            !isConfigured ||
+            isSubmitting ||
+            (step === "request" && cooldownRemainingMs > 0)
+          }
           fullWidth
           type="submit"
         >
           {isSubmitting
-            ? "Sending reset link..."
-            : cooldownRemainingMs > 0
+            ? step === "request"
+              ? "Sending code..."
+              : "Updating password..."
+            : cooldownRemainingMs > 0 && step === "request"
               ? `Wait ${cooldownRemainingSeconds}s`
-              : "Send reset link"}
+              : step === "request"
+                ? "Send reset code"
+                : "Verify code and update password"}
         </Button>
+
+        {step === "verify" ? (
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button
+              className="flex-1"
+              disabled={!isConfigured || isSubmitting || cooldownRemainingMs > 0}
+              onClick={() => {
+                void requestPasswordResetCode(pendingEmail);
+              }}
+              type="button"
+              variant="secondary"
+            >
+              {cooldownRemainingMs > 0
+                ? `Resend in ${cooldownRemainingSeconds}s`
+                : "Resend code"}
+            </Button>
+            <Button
+              className="flex-1"
+              disabled={isSubmitting}
+              onClick={() => {
+                setError(null);
+                setSuccess(null);
+                setStep("request");
+              }}
+              type="button"
+              variant="secondary"
+            >
+              Use another email
+            </Button>
+          </div>
+        ) : null}
       </form>
 
       <p className="mt-6 text-sm text-slate">

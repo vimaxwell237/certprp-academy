@@ -5,8 +5,6 @@ import {
   getConfiguredEmailProviderKind,
   getEmailProvider
 } from "@/features/delivery/lib/provider";
-import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
 import {
   checkSlidingWindowRateLimit,
   isTrustedRequestOrigin
@@ -33,26 +31,6 @@ function getClientAddress(request: NextRequest) {
   }
 
   return request.headers.get("x-real-ip") ?? "unknown";
-}
-
-function buildConfirmationRedirectUrl() {
-  const callbackParams = new URLSearchParams({
-    next: APP_ROUTES.login,
-    mode: "confirm"
-  });
-
-  return buildAppUrl(`${APP_ROUTES.authCallback}?${callbackParams.toString()}`);
-}
-
-function buildConfirmationEmailUrl(tokenHash: string) {
-  const callbackParams = new URLSearchParams({
-    token_hash: tokenHash,
-    type: "signup",
-    next: APP_ROUTES.login,
-    mode: "confirm"
-  });
-
-  return buildAppUrl(`${APP_ROUTES.authCallback}?${callbackParams.toString()}`);
 }
 
 export async function POST(request: NextRequest) {
@@ -131,10 +109,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.auth.admin.generateLink({
       type: "signup",
       email,
-      password,
-      options: {
-        redirectTo: buildConfirmationRedirectUrl()
-      }
+      password
     });
 
     if (error) {
@@ -149,17 +124,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const tokenHash = data.properties?.hashed_token;
+    const emailOtp = data.properties?.email_otp;
 
-    if (!tokenHash) {
-      throw new Error("Supabase did not return a signup confirmation token.");
+    if (!emailOtp) {
+      throw new Error("Supabase did not return a signup confirmation code.");
     }
 
     const emailProvider = getEmailProvider();
     const sendResult = await emailProvider.send(
       buildSignupConfirmationEmail({
         to: email,
-        confirmationUrl: buildConfirmationEmailUrl(tokenHash)
+        code: emailOtp
       })
     );
 
