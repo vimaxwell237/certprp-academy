@@ -1,21 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PasswordField } from "@/features/auth/components/password-field";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
-import { getSafeAuthErrorMessage } from "@/lib/errors/public-error";
-import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { hasSupabaseEnv } from "@/lib/supabase/config";
 
 export function SignupForm() {
-  const router = useRouter();
-  const [supabase] = useState(() => createBrowserSupabaseClient());
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -23,7 +17,7 @@ export function SignupForm() {
   const isConfigured = hasSupabaseEnv();
 
   async function handleSubmit(formData: FormData) {
-    if (!supabase) {
+    if (!isConfigured) {
       setError(
         "Supabase environment variables are missing. Add them in .env.local to enable sign up."
       );
@@ -41,37 +35,41 @@ export function SignupForm() {
       return;
     }
 
-    const callbackParams = new URLSearchParams({
-      next: APP_ROUTES.login,
-      mode: "confirm"
-    });
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/auth/signup", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            email,
+            password
+          })
+        });
+        const result = (await response.json().catch(() => null)) as
+          | {
+              error?: string;
+            }
+          | null;
 
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: buildAppUrl(
-          `${APP_ROUTES.authCallback}?${callbackParams.toString()}`
-        )
+        if (!response.ok) {
+          setError(
+            result?.error ??
+              "We could not create your account right now. Please review your details and try again."
+          );
+          return;
+        }
+
+        setSuccess(
+          "Account created. Check your email for the verification link. After you confirm, we will send you back to log in."
+        );
+      } catch {
+        setError(
+          "We could not create your account right now. Please check your connection and try again."
+        );
       }
     });
-
-    if (signUpError) {
-      setError(getSafeAuthErrorMessage("signup", signUpError));
-      return;
-    }
-
-    if (data.session) {
-      startTransition(() => {
-        router.push(APP_ROUTES.dashboard);
-        router.refresh();
-      });
-      return;
-    }
-
-    setSuccess(
-      "Account created. Check your email for the verification link. After you confirm, we will send you back to log in."
-    );
   }
 
   return (
