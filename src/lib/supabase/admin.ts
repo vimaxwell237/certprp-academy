@@ -6,7 +6,7 @@ import {
 } from "@/lib/supabase/config";
 
 export const SUPABASE_SERVICE_ROLE_MISSING_MESSAGE =
-  "Supabase service role environment variables are not configured.";
+  "Supabase server-side auth key environment variables are not configured.";
 
 export function createServiceRoleSupabaseClient() {
   if (!hasSupabaseServiceRoleEnv()) {

@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Password recovery is not configured yet. Add the Supabase service role key and try again."
+            "Password recovery is not configured yet. Add SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY and try again."
         },
         {
           status: 503
