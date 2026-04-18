@@ -7,12 +7,6 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { buildAppUrl } from "@/lib/app-url";
-import {
-  getSafePasswordRecoveryErrorMessage,
-  isPasswordRecoveryRateLimitError
-} from "@/lib/errors/public-error";
-import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { hasSupabaseEnv } from "@/lib/supabase/config";
 
 const PASSWORD_RESET_COOLDOWN_MS = 60_000;
@@ -20,7 +14,6 @@ const PASSWORD_RESET_COOLDOWN_KEY = "certprep:password-reset-cooldown-until";
 
 export function ForgotPasswordForm() {
   const searchParams = useSearchParams();
-  const [supabase] = useState(() => createBrowserSupabaseClient());
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -90,7 +83,7 @@ export function ForgotPasswordForm() {
   }, [cooldownRemainingMs]);
 
   async function handleSubmit(formData: FormData) {
-    if (!supabase) {
+    if (!isConfigured) {
       setError(
         "Supabase environment variables are missing. Add them in .env.local to enable password recovery."
       );
@@ -110,20 +103,28 @@ export function ForgotPasswordForm() {
       }
 
       const email = String(formData.get("email") ?? "");
-      const callbackParams = new URLSearchParams({
-        next: APP_ROUTES.resetPassword,
-        mode: "recovery"
+      const response = await fetch("/api/auth/password-reset", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email
+        })
       });
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: buildAppUrl(
-          `${APP_ROUTES.authCallback}?${callbackParams.toString()}`
-        )
-      });
+      const result = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+          }
+        | null;
 
-      if (resetError) {
-        setError(getSafePasswordRecoveryErrorMessage(resetError));
+      if (!response.ok) {
+        setError(
+          result?.error ??
+            "We could not send the reset email right now. Please try again in a minute."
+        );
 
-        if (isPasswordRecoveryRateLimitError(resetError)) {
+        if (response.status === 429) {
           setCooldown(PASSWORD_RESET_COOLDOWN_MS);
         }
       } else {
@@ -132,6 +133,10 @@ export function ForgotPasswordForm() {
         );
         setCooldown(PASSWORD_RESET_COOLDOWN_MS);
       }
+    } catch {
+      setError(
+        "We could not send the reset email right now. Please check your connection and try again."
+      );
     } finally {
       setIsSubmitting(false);
     }

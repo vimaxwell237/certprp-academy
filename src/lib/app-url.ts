@@ -13,6 +13,12 @@ function buildDeploymentUrl(value: string | undefined) {
 }
 
 export function getAppBaseUrl() {
+  // Client-side auth flows should use the current site origin instead of
+  // relying on server-only env vars that are not exposed in the browser.
+  if (typeof window !== "undefined" && window.location.origin) {
+    return normalizeBaseUrl(window.location.origin);
+  }
+
   const configuredUrl =
     process.env.APP_BASE_URL ??
     process.env.NEXT_PUBLIC_APP_URL ??

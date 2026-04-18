@@ -2,6 +2,7 @@ import {
   createServerClient,
   type CookieOptions
 } from "@supabase/ssr";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
@@ -14,6 +15,20 @@ type SupabaseCookie = {
   value: string;
   options?: CookieOptions;
 };
+
+function getSafeEmailOtpType(value: string | null): EmailOtpType | null {
+  switch (value) {
+    case "signup":
+    case "invite":
+    case "magiclink":
+    case "recovery":
+    case "email_change":
+    case "email":
+      return value;
+    default:
+      return null;
+  }
+}
 
 function getSafeNextPath(nextPath: string | null) {
   if (!nextPath || !nextPath.startsWith("/") || nextPath.startsWith("//")) {
@@ -107,6 +122,8 @@ function createAppRedirect(
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
+  const tokenHash = searchParams.get("token_hash");
+  const otpType = getSafeEmailOtpType(searchParams.get("type"));
   const mode = searchParams.get("mode");
   const nextPath =
     getSafeNextPath(searchParams.get("next")) ??
@@ -119,8 +136,13 @@ export async function GET(request: NextRequest) {
     mode === "recovery" ? APP_ROUTES.forgotPassword : APP_ROUTES.login;
   const failedRedirectError =
     mode === "recovery" ? "recovery_link" : "verification_link";
+  const hasTokenHashFlow = Boolean(tokenHash && otpType);
 
-  if (searchParams.get("error") || searchParams.get("error_description") || !code) {
+  if (
+    searchParams.get("error") ||
+    searchParams.get("error_description") ||
+    (!code && !hasTokenHashFlow)
+  ) {
     return createAppRedirect(failedRedirectPath, {
       error: failedRedirectError
     });
@@ -133,7 +155,12 @@ export async function GET(request: NextRequest) {
   }
 
   const { supabase, getResponse } = createRouteHandlerSupabaseClient(request);
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { error } = code
+    ? await supabase.auth.exchangeCodeForSession(code)
+    : await supabase.auth.verifyOtp({
+        token_hash: tokenHash!,
+        type: otpType!
+      });
 
   if (error) {
     return createAppRedirect(failedRedirectPath, {
