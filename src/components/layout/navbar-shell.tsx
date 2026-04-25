@@ -11,6 +11,7 @@ import type { NavigationUser } from "@/types/auth";
 import { NavDropdown, type NavDropdownItem } from "./nav-dropdown";
 
 interface NavbarShellProps {
+  isReady?: boolean;
   user: NavigationUser | null;
 }
 
@@ -32,16 +33,95 @@ function buildUserInitial(email?: string) {
   return source.charAt(0).toUpperCase();
 }
 
-export function NavbarShell({ user }: NavbarShellProps) {
+function buildNavLinkClass(isActive: boolean) {
+  return `rounded-full px-3 py-2 transition ${
+    isActive
+      ? "bg-white text-ink shadow-sm"
+      : "text-slate hover:bg-white hover:text-ink"
+  }`;
+}
+
+function MenuIcon({ isOpen }: { isOpen: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 20 20"
+    >
+      {isOpen ? (
+        <path
+          d="M5 5 15 15M15 5 5 15"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeWidth="1.8"
+        />
+      ) : (
+        <>
+          <path d="M4 6h12" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+          <path d="M4 10h12" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+          <path d="M4 14h12" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function LoadingNav() {
+  return (
+    <>
+      <div className="hidden items-center gap-2 sm:flex">
+        {[72, 78, 68].map((width) => (
+          <span
+            aria-hidden="true"
+            className="h-10 animate-pulse rounded-full bg-white/80"
+            key={width}
+            style={{ width }}
+          />
+        ))}
+      </div>
+      <span className="inline-flex items-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-slate shadow-sm sm:hidden">
+        Loading
+      </span>
+    </>
+  );
+}
+
+export function NavbarShell({ isReady = true, user }: NavbarShellProps) {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const currentPath = pathname ?? APP_ROUTES.home;
+  const mobileMenuId = "mobile-site-menu";
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [currentPath]);
 
-  const isAuthenticated = Boolean(user?.email);
+  useEffect(() => {
+    if (!isMobileMenuOpen) {
+      return;
+    }
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMobileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, []);
+
+  const isAuthenticated = isReady && Boolean(user?.email);
   const isAdmin = user?.role === "admin";
   const isTutor = user?.role === "tutor";
   const unreadNotifications = user?.notificationUnreadCount ?? 0;
@@ -88,46 +168,43 @@ export function NavbarShell({ user }: NavbarShellProps) {
   const accountIsActive = accountItems.some((item) => isRouteActive(currentPath, item.href));
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/60 bg-pearl/80 backdrop-blur-xl">
+    <header
+      className={`sticky top-0 z-40 border-b border-white/60 bg-pearl/85 backdrop-blur-xl transition-shadow ${
+        isMobileMenuOpen ? "shadow-lg shadow-slate-900/10" : ""
+      }`}
+    >
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:px-8">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <Link
-            className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl"
+            className="font-display text-lg font-bold tracking-tight text-ink transition hover:text-cyan sm:text-xl"
             href={APP_ROUTES.home}
           >
             CertPrep Academy
           </Link>
+          <span className="hidden rounded-full border border-cyan/15 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate/80 lg:inline-flex">
+            CCNA First
+          </span>
         </div>
 
-        {isAuthenticated ? (
+        {!isReady ? (
+          <LoadingNav />
+        ) : isAuthenticated ? (
           <>
             <nav className="hidden items-center gap-1.5 text-sm font-medium xl:flex">
               <Link
-                className={`rounded-full px-3 py-2 transition ${
-                  isRouteActive(currentPath, APP_ROUTES.home)
-                    ? "bg-white text-ink shadow-sm"
-                    : "text-slate hover:bg-white hover:text-ink"
-                }`}
+                className={buildNavLinkClass(isRouteActive(currentPath, APP_ROUTES.home))}
                 href={APP_ROUTES.home}
               >
                 Home
               </Link>
               <Link
-                className={`rounded-full px-3 py-2 transition ${
-                  isRouteActive(currentPath, APP_ROUTES.pricing)
-                    ? "bg-white text-ink shadow-sm"
-                    : "text-slate hover:bg-white hover:text-ink"
-                }`}
+                className={buildNavLinkClass(isRouteActive(currentPath, APP_ROUTES.pricing))}
                 href={APP_ROUTES.pricing}
               >
                 Pricing
               </Link>
               <Link
-                className={`rounded-full px-3 py-2 transition ${
-                  isRouteActive(currentPath, APP_ROUTES.courses)
-                    ? "bg-white text-ink shadow-sm"
-                    : "text-slate hover:bg-white hover:text-ink"
-                }`}
+                className={buildNavLinkClass(isRouteActive(currentPath, APP_ROUTES.courses))}
                 href={APP_ROUTES.courses}
               >
                 Courses
@@ -145,11 +222,7 @@ export function NavbarShell({ user }: NavbarShellProps) {
                 panelLabel="Support"
               />
               <Link
-                className={`rounded-full px-3 py-2 transition ${
-                  isRouteActive(currentPath, APP_ROUTES.dashboard)
-                    ? "bg-white text-ink shadow-sm"
-                    : "text-slate hover:bg-white hover:text-ink"
-                }`}
+                className={buildNavLinkClass(isRouteActive(currentPath, APP_ROUTES.dashboard))}
                 href={APP_ROUTES.dashboard}
               >
                 Dashboard
@@ -177,57 +250,55 @@ export function NavbarShell({ user }: NavbarShellProps) {
             </div>
 
             <button
+              aria-controls={mobileMenuId}
               aria-expanded={isMobileMenuOpen}
-              className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-cyan/30 hover:text-cyan xl:hidden"
+              aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              className="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-cyan/30 hover:text-cyan xl:hidden"
               onClick={() => setIsMobileMenuOpen((open) => !open)}
               type="button"
             >
-              Menu
+              <MenuIcon isOpen={isMobileMenuOpen} />
+              <span>{isMobileMenuOpen ? "Close" : "Menu"}</span>
             </button>
           </>
         ) : (
           <>
             <nav className="hidden items-center gap-2 text-sm font-medium text-slate sm:flex">
-              <Link
-                className="rounded-full px-3 py-2 transition hover:bg-white hover:text-ink"
-                href={APP_ROUTES.home}
-              >
-                Home
-              </Link>
-              <Link
-                className="rounded-full px-3 py-2 transition hover:bg-white hover:text-ink"
-                href={APP_ROUTES.pricing}
-              >
-                Pricing
-              </Link>
-              <Link
-                className="rounded-full px-3 py-2 transition hover:bg-white hover:text-ink"
-                href={APP_ROUTES.login}
-              >
-                Login
-              </Link>
-              <Link
-                className="rounded-full bg-ink px-4 py-2 text-white transition hover:-translate-y-0.5 hover:bg-slate-900"
-                href={APP_ROUTES.signup}
-              >
-                Sign Up
-              </Link>
+              {publicNavItems.map((item) => (
+                <Link
+                  className={
+                    item.href === APP_ROUTES.signup
+                      ? "rounded-full bg-ink px-4 py-2 text-white transition hover:-translate-y-0.5 hover:bg-slate-900"
+                      : buildNavLinkClass(isRouteActive(currentPath, item.href))
+                  }
+                  href={item.href}
+                  key={item.href}
+                >
+                  {item.label}
+                </Link>
+              ))}
             </nav>
 
             <button
+              aria-controls={mobileMenuId}
               aria-expanded={isMobileMenuOpen}
-              className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-cyan/30 hover:text-cyan sm:hidden"
+              aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              className="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-cyan/30 hover:text-cyan sm:hidden"
               onClick={() => setIsMobileMenuOpen((open) => !open)}
               type="button"
             >
-              Menu
+              <MenuIcon isOpen={isMobileMenuOpen} />
+              <span>{isMobileMenuOpen ? "Close" : "Menu"}</span>
             </button>
           </>
         )}
       </div>
 
-      {isMobileMenuOpen ? (
-        <div className="border-t border-white/60 bg-white/95 px-4 py-5 shadow-xl shadow-slate-900/5 backdrop-blur sm:px-6 xl:hidden">
+      {isReady && isMobileMenuOpen ? (
+        <div
+          className="animate-[mobile-menu-enter_220ms_ease-out] border-t border-white/60 bg-white/95 px-4 py-5 shadow-xl shadow-slate-900/5 backdrop-blur sm:px-6 xl:hidden"
+          id={mobileMenuId}
+        >
           <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
             {isAuthenticated ? (
               <>

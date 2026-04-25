@@ -18,11 +18,13 @@ function normalizeRole(role: string | null | undefined) {
 
 export function LayoutChrome() {
   const [user, setUser] = useState<NavigationUser | null>(null);
+  const [isNavigationReady, setIsNavigationReady] = useState(false);
 
   useEffect(() => {
     const client = createBrowserSupabaseClient();
 
     if (!client) {
+      setIsNavigationReady(true);
       return;
     }
 
@@ -42,6 +44,7 @@ export function LayoutChrome() {
 
         if (!authUser) {
           setUser(null);
+          setIsNavigationReady(true);
           return;
         }
 
@@ -63,9 +66,11 @@ export function LayoutChrome() {
           role: normalizeRole(roleResult.data?.role),
           notificationUnreadCount: unreadResult.error ? 0 : unreadResult.count ?? 0
         });
+        setIsNavigationReady(true);
       } catch {
         if (isActive) {
           setUser(null);
+          setIsNavigationReady(true);
         }
       }
     }
@@ -88,7 +93,7 @@ export function LayoutChrome() {
 
   return (
     <>
-      <NavbarShell user={user} />
+      <NavbarShell isReady={isNavigationReady} user={user} />
       {isAuthenticated ? <SelectionAskAiTutor /> : null}
       {isAuthenticated ? <TutorWidget /> : null}
     </>

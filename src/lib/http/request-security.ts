@@ -8,6 +8,34 @@ type RateLimitState = {
 };
 
 const rateLimitBuckets = new Map<string, RateLimitState>();
+const MAX_TRACKED_RATE_LIMIT_BUCKETS = 2_000;
+
+function pruneExpiredRateLimitBuckets(now: number) {
+  for (const [key, state] of rateLimitBuckets.entries()) {
+    if (state.resetAt <= now) {
+      rateLimitBuckets.delete(key);
+    }
+  }
+}
+
+function trimOldestRateLimitBuckets(maxSize: number) {
+  if (rateLimitBuckets.size <= maxSize) {
+    return;
+  }
+
+  const overflow = rateLimitBuckets.size - maxSize;
+  const keysToDelete = rateLimitBuckets.keys();
+
+  for (let index = 0; index < overflow; index += 1) {
+    const next = keysToDelete.next();
+
+    if (next.done) {
+      return;
+    }
+
+    rateLimitBuckets.delete(next.value);
+  }
+}
 
 function normalizeOrigin(value: string) {
   return value.trim().replace(/\/$/, "").toLowerCase();
@@ -56,6 +84,8 @@ export function checkSlidingWindowRateLimit(input: {
   windowMs: number;
 }) {
   const now = Date.now();
+  pruneExpiredRateLimitBuckets(now);
+  trimOldestRateLimitBuckets(MAX_TRACKED_RATE_LIMIT_BUCKETS);
   const current = rateLimitBuckets.get(input.key);
 
   if (!current || current.resetAt <= now) {

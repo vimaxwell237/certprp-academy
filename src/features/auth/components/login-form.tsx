@@ -20,14 +20,11 @@ export function LoginForm() {
   const [isPending, startTransition] = useTransition();
 
   const isConfigured = hasSupabaseEnv();
-  const createdParam = searchParams?.get("created");
   const verifiedParam = searchParams?.get("verified");
   const resetParam = searchParams?.get("reset");
   const errorParam = searchParams?.get("error");
   const statusMessage =
-    createdParam === "1"
-      ? "Account created. Log in with the email and password you just chose."
-      : verifiedParam === "1"
+    verifiedParam === "1"
       ? "Email verified. Log in to continue."
       : resetParam === "1"
         ? "Password updated. Log in with your new password."

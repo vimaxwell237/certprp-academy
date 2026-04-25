@@ -12,6 +12,7 @@
 
 html {
   scroll-behavior: smooth;
+  scrollbar-gutter: stable both-edges;
 }
 
 body {
@@ -21,6 +22,14 @@ body {
   background:
     radial-gradient(circle at top, rgba(8, 145, 178, 0.14), transparent 26%),
     linear-gradient(180deg, #f8fafc 0%, #f5f7fb 100%);
+  color: #0f172a;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(8, 145, 178, 0.22);
   color: #0f172a;
 }
 
@@ -48,6 +57,46 @@ select {
 :where(a, button, input, textarea, select):focus-visible {
   outline: 2px solid rgba(8, 145, 178, 0.85);
   outline-offset: 2px;
+}
+
+.app-shell-main {
+  animation: page-enter 220ms ease-out;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dropdown-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mobile-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

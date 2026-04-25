@@ -2,28 +2,23 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PasswordField } from "@/features/auth/components/password-field";
 import { APP_ROUTES } from "@/lib/auth/redirects";
-import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 import { hasSupabaseEnv } from "@/lib/supabase/config";
 
 export function SignupForm() {
-  const router = useRouter();
-  const [supabase] = useState(() => createBrowserSupabaseClient());
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isConfigured = hasSupabaseEnv();
 
   async function createAccount(nextEmail: string, nextPassword: string) {
-    if (!isConfigured || !supabase) {
+    if (!isConfigured) {
       setError(
         "Supabase environment variables are missing. Add them in .env.local to enable account creation."
       );
@@ -31,8 +26,6 @@ export function SignupForm() {
     }
 
     setError(null);
-    setSuccess(null);
-
     setIsSubmitting(true);
 
     try {
@@ -60,20 +53,7 @@ export function SignupForm() {
         return;
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: nextEmail,
-        password: nextPassword
-      });
-
-      if (signInError) {
-        router.push(`${APP_ROUTES.login}?created=1`);
-        router.refresh();
-        return;
-      }
-
-      setSuccess("Account created. Redirecting you to your dashboard...");
-      router.push(APP_ROUTES.dashboard);
-      router.refresh();
+      window.location.replace(APP_ROUTES.dashboard);
     } catch {
       setError(
         "We could not create your account right now. Please check your connection and try again."
@@ -88,7 +68,6 @@ export function SignupForm() {
     const nextPassword = String(formData.get("password") ?? "");
 
     setError(null);
-    setSuccess(null);
     setEmail(nextEmail);
     setPassword(nextPassword);
 
@@ -146,11 +125,6 @@ export function SignupForm() {
         {error ? (
           <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {error}
-          </p>
-        ) : null}
-        {success ? (
-          <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            {success}
           </p>
         ) : null}
 

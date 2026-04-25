@@ -45,11 +45,11 @@ const nextConfig = {
       "base-uri 'self'",
       "object-src 'none'",
       "frame-ancestors 'none'",
-      "img-src 'self' data: blob: https:",
+      "img-src 'self' data: blob: https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https:",
       "font-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-inline'",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://r.stripe.com",
+      "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://r.stripe.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com",
       "frame-src 'self' https://checkout.stripe.com",
       "form-action 'self' https://checkout.stripe.com"
     ].join("; ");
@@ -73,6 +73,10 @@ const nextConfig = {
       },
       {
         key: "Cross-Origin-Opener-Policy",
+        value: "same-origin"
+      },
+      {
+        key: "Cross-Origin-Resource-Policy",
         value: "same-origin"
       },
       {
