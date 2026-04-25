@@ -20,18 +20,21 @@ export function LoginForm() {
   const [isPending, startTransition] = useTransition();
 
   const isConfigured = hasSupabaseEnv();
+  const createdParam = searchParams?.get("created");
   const verifiedParam = searchParams?.get("verified");
   const resetParam = searchParams?.get("reset");
   const errorParam = searchParams?.get("error");
   const statusMessage =
-    verifiedParam === "1"
+    createdParam === "1"
+      ? "Account created. Log in with the email and password you just chose."
+      : verifiedParam === "1"
       ? "Email verified. Log in to continue."
       : resetParam === "1"
         ? "Password updated. Log in with your new password."
         : null;
   const authFlowError =
     errorParam === "verification_link"
-      ? "That verification link is invalid or has expired. Sign up again to send a fresh verification email."
+      ? "That sign-in link is invalid or has expired. Please log in again or request a fresh email."
       : null;
 
   async function handleSubmit(formData: FormData) {

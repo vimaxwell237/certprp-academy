@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildSignupConfirmationEmail } from "@/features/auth/lib/signup-confirmation-email";
-import {
-  getConfiguredEmailProviderKind,
-  getEmailProvider
-} from "@/features/delivery/lib/provider";
 import {
   checkSlidingWindowRateLimit,
   isTrustedRequestOrigin
@@ -92,24 +87,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (getConfiguredEmailProviderKind() === "log") {
-    return NextResponse.json(
-      {
-        error:
-          "Account email delivery is not configured yet. Add a real email provider and try again."
-      },
-      {
-        status: 503
-      }
-    );
-  }
-
   try {
     const supabase = createServiceRoleSupabaseClient();
-    const { data, error } = await supabase.auth.admin.generateLink({
-      type: "signup",
+    const { error } = await supabase.auth.admin.createUser({
       email,
-      password
+      password,
+      email_confirm: true
     });
 
     if (error) {
@@ -122,24 +105,6 @@ export async function POST(request: NextRequest) {
           status: 400
         }
       );
-    }
-
-    const emailOtp = data.properties?.email_otp;
-
-    if (!emailOtp) {
-      throw new Error("Supabase did not return a signup confirmation code.");
-    }
-
-    const emailProvider = getEmailProvider();
-    const sendResult = await emailProvider.send(
-      buildSignupConfirmationEmail({
-        to: email,
-        code: emailOtp
-      })
-    );
-
-    if (sendResult.status !== "sent") {
-      throw new Error(sendResult.errorMessage ?? "Signup confirmation email send failed.");
     }
 
     return NextResponse.json({ ok: true });
